@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -388,16 +388,26 @@ namespace Opc.Ua
         /// Lazy helper to allow runtime to check for Pss support.
         /// </summary>
         internal static readonly Lazy<bool> IsSupportingRSAPssSign = new Lazy<bool>(() => {
-#if NETFRAMEWORK
             // The Pss check returns false on .Net4.6/4.7, although it is always supported with certs.
             // but not supported with Mono
-            return !Utils.IsRunningOnMono();
-#else
-            using (var rsa = RSA.Create())
+            if (!Utils.IsRunningOnMono())
             {
-                return RsaUtils.TryVerifyRSAPssSign(rsa, rsa);
+                if(Utils.IsRunningOnNetCore())
+                {
+                    using (var rsa = RSA.Create())
+                    {
+                        return RsaUtils.TryVerifyRSAPssSign(rsa, rsa);
+                    }
+                }
+                else
+                {
+                    return true;
+                }
             }
-#endif
+            else
+            {
+                return false;
+            }
         });
 
         /// <summary>
@@ -417,6 +427,6 @@ namespace Opc.Ua
                 rsa.Dispose();
             }
         }
-        #endregion
+#endregion
     }
 }
