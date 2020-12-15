@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -10,7 +10,6 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 
-using System.IdentityModel.Selectors;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Opc.Ua
@@ -67,7 +66,7 @@ namespace Opc.Ua
         /// This is the object used by the channel to validate received certificates.
         /// Validatation errors are reported to the application via this object.
         /// </remarks>
-        public X509CertificateValidator CertificateValidator
+        public ICertificateValidator CertificateValidator
         {
             get { return m_certificateValidator; }
             set { m_certificateValidator = value; }
@@ -109,6 +108,15 @@ namespace Opc.Ua
             get { return m_channelFactory; }
             set { m_channelFactory = value; }
         }
+
+        /// <summary>
+        /// Indicates if the transport listener is used as an endpoint for a reverse connection.
+        /// </summary>
+        public bool ReverseConnectListener
+        {
+            get { return m_reverseConnectListener; }
+            set { m_reverseConnectListener = value; }
+        }
         #endregion
 
         #region Private Fields
@@ -116,9 +124,10 @@ namespace Opc.Ua
         private EndpointConfiguration m_configuration;
         private X509Certificate2 m_serverCertificate;
         private X509Certificate2Collection m_serverCertificateChain;
-        private X509CertificateValidator m_certificateValidator;
+        private ICertificateValidator m_certificateValidator;
         private NamespaceTable m_namespaceUris;
         private EncodeableFactory m_channelFactory;
+        private bool m_reverseConnectListener;
         #endregion
     }
 }

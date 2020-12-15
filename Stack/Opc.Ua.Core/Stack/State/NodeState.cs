@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -2933,7 +2933,7 @@ namespace Opc.Ua
         }
 
         /// <summary>
-        /// Populates a table with all references in the hierarchy. 
+        /// Populates a table with all references in the hierarchy.
         /// </summary>
         /// <param name="context">The context for the current operation.</param>
         /// <param name="browsePath">The path to the parent object.</param>
@@ -3863,6 +3863,85 @@ namespace Opc.Ua
 
                     return result;
                 }
+
+                case Attributes.RolePermissions:
+                {
+                    ExtensionObject[] rolePermissionsArray = value as ExtensionObject[];
+
+                    if(rolePermissionsArray == null)
+                    {
+                        return StatusCodes.BadTypeMismatch;
+                    }
+
+                    RolePermissionTypeCollection rolePermissions = new RolePermissionTypeCollection();
+
+                    foreach (ExtensionObject arrayValue in rolePermissionsArray)
+                    {
+                        RolePermissionType rolePermission = arrayValue.Body as RolePermissionType;
+
+                        if (rolePermission == null)
+                        {
+                            return StatusCodes.BadTypeMismatch;
+                        }
+                        else
+                        {
+                            rolePermissions.Add(rolePermission);
+                        }
+                    }
+
+                    if ((WriteMask & AttributeWriteMask.RolePermissions) == 0)
+                    {
+                        return StatusCodes.BadNotWritable;
+                    }
+
+                    if (OnWriteRolePermissions != null)
+                    {
+                        result = OnWriteRolePermissions(context, this, ref rolePermissions);
+                    }
+
+                    if (ServiceResult.IsGood(result))
+                    {
+                        m_rolePermissions = rolePermissions;
+                    }
+
+                    return result;
+                }
+
+                case Attributes.AccessRestrictions:
+                {
+                    ushort? accessRestrictionsRef = value as ushort?;
+
+                    if (accessRestrictionsRef == null && value != null)
+                    {
+                        if (value.GetType() == typeof(uint))
+                        {
+                            accessRestrictionsRef = Convert.ToUInt16(value);
+                        }
+                        else
+                        {
+                            return StatusCodes.BadTypeMismatch;
+                        }
+                    }
+
+                    if ((WriteMask & AttributeWriteMask.AccessRestrictions) == 0)
+                    {
+                        return StatusCodes.BadNotWritable;
+                    }
+
+                    AccessRestrictionType accessRestrictions = (AccessRestrictionType)accessRestrictionsRef.Value;
+
+                    if (OnWriteAccessRestrictions != null)
+                    {
+                        result = OnWriteAccessRestrictions(context, this, ref accessRestrictions);
+                    }
+
+                    if (ServiceResult.IsGood(result))
+                    {
+                        m_accessRestrictions = accessRestrictions;
+                    }
+
+                    return result;
+                }
             }
 
             return StatusCodes.BadAttributeIdInvalid;
@@ -4591,10 +4670,10 @@ namespace Opc.Ua
         #endregion
     }
 
-    [Flags]
     /// <summary>
     /// Indicates what has changed in a node.
     /// </summary>
+    [Flags]
     public enum NodeStateChangeMasks
     {
         /// <summary>

@@ -1,4 +1,4 @@
-﻿/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -11,7 +11,9 @@
 */
 
 using System;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading.Tasks;
 
 namespace Opc.Ua.Bindings
 {
@@ -45,6 +47,14 @@ namespace Opc.Ua.Bindings
             X509Certificate2 clientCertificate,
             ChannelToken token,
             OpenSecureChannelRequest request);
+
+        /// <summary>
+        /// Used to transfer a reverse connection socket to the client.
+        /// </summary>
+        Task<bool> TransferListenerChannel(
+            uint channelId,
+            string serverUri,
+            Uri endpointUrl);
 
         /// <summary>
         /// Called when a channel closes.

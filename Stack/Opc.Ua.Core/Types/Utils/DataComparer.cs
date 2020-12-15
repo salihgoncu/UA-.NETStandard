@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -300,8 +300,8 @@ namespace Opc.Ua.Test
         {
             if (value1.Kind != value2.Kind)
             {
-                value1 = Utils.NormalizeToUniversalTime(value1);
-                value2 = Utils.NormalizeToUniversalTime(value2);
+                value1 = Utils.ToOpcUaUniversalTime(value1);
+                value2 = Utils.ToOpcUaUniversalTime(value2);
             }
 
             if (value1 < Utils.TimeBase)

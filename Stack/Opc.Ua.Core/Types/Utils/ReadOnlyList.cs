@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -13,7 +13,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Text;
 
 namespace Opc.Ua
 {
@@ -66,10 +65,7 @@ namespace Opc.Ua
         /// <summary>
         /// The number of items in the list.
         /// </summary>
-        public int Count
-        {
-            get { return m_list.Count; }
-        }
+        public int Count => m_list.Count;
 
         /// <summary>
         /// Adds new item  to the list (not supported).
@@ -106,10 +102,7 @@ namespace Opc.Ua
         /// <summary>
         /// Indicates that the list is read only.
         /// </summary>
-        public bool IsReadOnly
-        {
-            get { return true; }
-        }
+        public bool IsReadOnly => true;
 
         /// <summary>
         /// Removes an item from the list (not supported).
@@ -246,18 +239,12 @@ namespace Opc.Ua
         /// <summary>
         /// Gets a value indicating whether the <see cref="T:System.Collections.IList"/> has a fixed size.
         /// </summary>
-        bool IList.IsFixedSize
-        {
-            get { return true; }
-        }
+        bool IList.IsFixedSize => true;
 
         /// <summary>
         /// Gets a value indicating whether the <see cref="T:System.Collections.Generic.ICollection`1"/> is read-only.
         /// </summary>
-        bool IList.IsReadOnly
-        {
-            get { return true; }
-        }
+        bool IList.IsReadOnly => true;
 
         /// <summary>
         /// Removes the first occurrence of a specific object from the <see cref="T:System.Collections.IList"/>.
@@ -304,26 +291,17 @@ namespace Opc.Ua
         /// <summary>
         /// Gets the number of elements contained in the <see cref="T:System.Collections.Generic.ICollection`1"/>.
         /// </summary>
-        int ICollection.Count
-        {
-            get { return this.Count; }
-        }
+        int ICollection.Count => this.Count;
 
         /// <summary>
         /// Gets a value indicating whether access to the <see cref="T:System.Collections.ICollection"/> is synchronized (thread safe).
         /// </summary>
-        bool ICollection.IsSynchronized
-        {
-            get { return false; }
-        }
+        bool ICollection.IsSynchronized => false;
 
         /// <summary>
         /// Gets an object that can be used to synchronize access to the <see cref="T:System.Collections.ICollection"/>.
         /// </summary>
-        object ICollection.SyncRoot
-        {
-            get { return false; }
-        }
+        object ICollection.SyncRoot => false;
         #endregion
 
         #region Private Fields

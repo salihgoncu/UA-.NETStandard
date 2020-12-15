@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -47,6 +47,16 @@ namespace Opc.Ua.Bindings
         /// <summary>
         /// A chunk for a generic message.
         /// </summary>
+        public const uint MessageIntermediate = Message | Intermediate;
+        
+        /// <summary>
+        /// A chunk for a generic message.
+        /// </summary>
+        public const uint MessageFinal = Message | Final;
+
+        /// <summary>
+        /// A chunk for a generic message.
+        /// </summary>
         public const uint Message = 0x0047534D;
 
         /// <summary>
@@ -63,6 +73,11 @@ namespace Opc.Ua.Bindings
         /// A hello message.
         /// </summary>
         public const uint Hello = 0x464C4548;
+
+        /// <summary>
+        /// A reverse hello message.
+        /// </summary>
+        public const uint ReverseHello = 0x46454852;
 
         /// <summary>
         /// An acknowledge message.
@@ -106,6 +121,7 @@ namespace Opc.Ua.Bindings
             switch (messageType)
             {
                 case Hello:
+                case ReverseHello:
                 case Acknowledge:
                 case Error:
                     {

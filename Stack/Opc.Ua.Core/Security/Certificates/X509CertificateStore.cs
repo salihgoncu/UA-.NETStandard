@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
 
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
@@ -18,14 +18,18 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
+using Opc.Ua.Security.Certificates;
 
 namespace Opc.Ua
 {
     /// <summary>
-    /// Provides access to a simple file based certificate store.
+    /// Provides access to a simple X509Store based certificate store.
     /// </summary>
     public class X509CertificateStore : ICertificateStore
     {
+        /// <summary>
+        /// Create an instance of the certificate store.
+        /// </summary>
         public X509CertificateStore()
         {
             // defaults
@@ -33,11 +37,15 @@ namespace Opc.Ua
             m_storeLocation = StoreLocation.CurrentUser;
         }
 
+        /// <inheritdoc/>
         public void Dispose()
         {
-            // nothing to do
+            Dispose(true);
         }
 
+        /// <summary>
+        /// Dispose method for derived classes.
+        /// </summary>
         protected virtual void Dispose(bool disposing)
         {
             // nothing to do
@@ -45,10 +53,9 @@ namespace Opc.Ua
 
         /// <summary cref="ICertificateStore.Open(string)" />
         /// <remarks>
-        /// Syntax: StoreLocation\StoreName		
-        /// Examples:
-        /// LocalMachine\My
-        /// CurrentUser\Trust
+        /// Syntax: StoreLocation\StoreName
+        /// Example:
+        ///   CurrentUser\My
         /// </remarks>
         public void Open(string path)
         {
@@ -95,11 +102,13 @@ namespace Opc.Ua
             m_storeName = path.Substring(index + 1);
         }
 
+        /// <inheritdoc/>
         public void Close()
         {
             // nothing to do
         }
 
+        /// <inheritdoc/>
         public Task<X509Certificate2Collection> Enumerate()
         {
             using (X509Store store = new X509Store(m_storeName, m_storeLocation))
@@ -109,7 +118,7 @@ namespace Opc.Ua
             }
         }
 
-        /// <summary cref="ICertificateStore.Add(X509Certificate2)" />
+        /// <summary cref="ICertificateStore.Add(X509Certificate2, string)" />
         public Task Add(X509Certificate2 certificate, string password = null)
         {
             if (certificate == null) throw new ArgumentNullException(nameof(certificate));
@@ -127,6 +136,7 @@ namespace Opc.Ua
             return Task.CompletedTask;
         }
 
+        /// <inheritdoc/>
         public Task<bool> Delete(string thumbprint)
         {
             using (X509Store store = new X509Store(m_storeName, m_storeLocation))
@@ -145,6 +155,7 @@ namespace Opc.Ua
             return Task.FromResult(true);
         }
 
+        /// <inheritdoc/>
         public Task<X509Certificate2Collection> FindByThumbprint(string thumbprint)
         {
             using (X509Store store = new X509Store(m_storeName, m_storeLocation))
@@ -165,28 +176,40 @@ namespace Opc.Ua
             }
         }
 
-        public bool SupportsCRLs { get { return false; } }
+        /// <inheritdoc/>
+        /// <remarks>CRLs are not supported here.</remarks>
+        public bool SupportsCRLs => false;
 
+        /// <inheritdoc/>
+        /// <remarks>CRLs are not supported here.</remarks>
         public StatusCode IsRevoked(X509Certificate2 issuer, X509Certificate2 certificate)
         {
             return StatusCodes.BadNotSupported;
         }
 
+        /// <inheritdoc/>
+        /// <remarks>CRLs are not supported here.</remarks>
         public List<X509CRL> EnumerateCRLs()
         {
             throw new ServiceResultException(StatusCodes.BadNotSupported);
         }
 
+        /// <inheritdoc/>
+        /// <remarks>CRLs are not supported here.</remarks>
         public List<X509CRL> EnumerateCRLs(X509Certificate2 issuer, bool validateUpdateTime = true)
         {
             throw new ServiceResultException(StatusCodes.BadNotSupported);
         }
 
+        /// <inheritdoc/>
+        /// <remarks>CRLs are not supported here.</remarks>
         public void AddCRL(X509CRL crl)
         {
             throw new ServiceResultException(StatusCodes.BadNotSupported);
         }
 
+        /// <inheritdoc/>
+        /// <remarks>CRLs are not supported here.</remarks>
         public bool DeleteCRL(X509CRL crl)
         {
             throw new ServiceResultException(StatusCodes.BadNotSupported);

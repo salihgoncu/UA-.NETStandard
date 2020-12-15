@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -53,15 +53,8 @@ namespace Opc.Ua.Bindings
             MessageSecurityMode securityMode,
             string securityPolicyUri)
         {
-            if (bufferManager == null)
-            {
-                throw new ArgumentNullException(nameof(bufferManager));
-            }
-
-            if (quotas == null)
-            {
-                throw new ArgumentNullException(nameof(quotas));
-            }
+            if (bufferManager == null) throw new ArgumentNullException(nameof(bufferManager));
+            if (quotas == null) throw new ArgumentNullException(nameof(quotas));
 
             // create a unique contex if none provided.
             m_contextId = contextId;
@@ -79,10 +72,7 @@ namespace Opc.Ua.Bindings
 
             if (securityMode != MessageSecurityMode.None)
             {
-                if (serverCertificate == null)
-                {
-                    throw new ArgumentNullException(nameof(serverCertificate));
-                }
+                if (serverCertificate == null) throw new ArgumentNullException(nameof(serverCertificate));
 
                 if (serverCertificate.RawData.Length > TcpMessageLimits.MaxCertificateSize)
                 {
@@ -624,12 +614,13 @@ namespace Opc.Ua.Bindings
         protected internal IMessageSocket Socket
         {
             get { return m_socket; }
-
-            set
-            {
-                m_socket = value;
-            }
+            set { m_socket = value; }
         }
+
+        /// <summary>
+        /// Whether the client channel uses a reverse hello socket.
+        /// </summary>
+        protected internal bool ReverseSocket { get; set; }
 
         /// <summary>
         /// The buffer manager for the channel.

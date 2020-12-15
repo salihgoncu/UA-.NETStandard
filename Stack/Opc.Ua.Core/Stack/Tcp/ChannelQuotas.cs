@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -9,8 +9,6 @@
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
-
-using System.IdentityModel.Selectors;
 
 namespace Opc.Ua.Bindings
 {
@@ -59,7 +57,7 @@ namespace Opc.Ua.Bindings
         /// <summary>
         /// Validator to use when handling certificates.
         /// </summary>
-        public X509CertificateValidator CertificateValidator
+        public ICertificateValidator CertificateValidator
         {
             get
             {
@@ -174,7 +172,7 @@ namespace Opc.Ua.Bindings
         private int m_channelLifetime;
         private int m_securityTokenLifetime;
         private ServiceMessageContext m_messageContext;
-        private X509CertificateValidator m_certificateValidator;
+        private ICertificateValidator m_certificateValidator;
         #endregion
     }
 }

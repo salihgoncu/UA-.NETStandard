@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -35,9 +35,20 @@ namespace Opc.Ua
         private uint m_nestingLevel;
         // JSON encoded value of: “9999-12-31T23:59:59Z”
         private DateTime m_dateTimeMaxJsonValue = new DateTime((long)3155378975990000000);
+        private enum JTokenNullObject
+        {
+            Undefined = 0,
+            Object = 1,
+            Array = 2
+        };
         #endregion
 
         #region Constructors
+        /// <summary>
+        /// Create a JSON decoder to decode a string.
+        /// </summary>
+        /// <param name="json">The JSON encoded string.</param>
+        /// <param name="context">The service message context to use.</param>
         public JsonDecoder(string json, ServiceMessageContext context)
         {
             if (context == null)
@@ -54,7 +65,13 @@ namespace Opc.Ua
             m_stack.Push(m_root);
         }
 
-        public JsonDecoder(System.Type systemType, JsonTextReader reader, ServiceMessageContext context)
+        /// <summary>
+        /// Create a JSON decoder to decode a <see cref="Type"/>from a <see cref="JsonTextReader"/>.
+        /// </summary>
+        /// <param name="systemType">The system type of the encoded JSON stram.</param>
+        /// <param name="reader">The text reader.</param>
+        /// <param name="context">The service message context to use.</param>
+        public JsonDecoder(Type systemType, JsonTextReader reader, ServiceMessageContext context)
         {
             Initialize();
 
@@ -81,15 +98,8 @@ namespace Opc.Ua
         /// </summary>
         public static IEncodeable DecodeSessionLessMessage(byte[] buffer, ServiceMessageContext context)
         {
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-
-            if (context == null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
+            if (buffer == null) throw new ArgumentNullException(nameof(buffer));
+            if (context == null) throw new ArgumentNullException(nameof(context));
 
             JsonDecoder decoder = new JsonDecoder(UTF8Encoding.UTF8.GetString(buffer), context);
 
@@ -97,9 +107,7 @@ namespace Opc.Ua
             {
                 // decode the actual message.
                 SessionLessServiceMessage message = new SessionLessServiceMessage();
-
                 message.Decode(decoder);
-
                 return message.Message;
             }
             finally
@@ -246,6 +254,10 @@ namespace Opc.Ua
                     }
 
                     case JsonToken.Null:
+                    {
+                        elements.Add(JTokenNullObject.Array);
+                        break;
+                    }
                     case JsonToken.Date:
                     case JsonToken.Boolean:
                     case JsonToken.Integer:
@@ -296,6 +308,11 @@ namespace Opc.Ua
                             }
 
                             case JsonToken.Null:
+                            {
+                                fields[name] = JTokenNullObject.Object;
+                                break;
+                            }
+
                             case JsonToken.Date:
                             case JsonToken.Bytes:
                             case JsonToken.Boolean:
@@ -387,6 +404,11 @@ namespace Opc.Ua
         {
         }
 
+        /// <summary>
+        /// Read a decoded JSON field.
+        /// </summary>
+        /// <param name="fieldName">The name of the field.</param>
+        /// <param name="token">The returned object token of the field.</param>
         public bool ReadField(string fieldName, out object token)
         {
             token = null;
@@ -870,8 +892,12 @@ namespace Opc.Ua
                 return null;
             }
 
-            var value = token as string;
+            if (token is JTokenNullObject)
+            {
+                return null;
+            }
 
+            var value = token as string;
             if (value == null)
             {
                 return new byte[0];
@@ -914,7 +940,8 @@ namespace Opc.Ua
                 XmlDocument document = new XmlDocument();
                 string xmlString = new UTF8Encoding().GetString(bytes, 0, bytes.Length);
 
-                using (XmlReader reader = XmlReader.Create(new StringReader(xmlString), new XmlReaderSettings() { DtdProcessing = System.Xml.DtdProcessing.Prohibit }))
+                using (XmlReader reader = XmlReader.Create(new StringReader(xmlString),
+                    new XmlReaderSettings() { DtdProcessing = System.Xml.DtdProcessing.Prohibit }))
                 {
                     document.Load(reader);
                 }
@@ -1375,26 +1402,25 @@ namespace Opc.Ua
                     return Variant.Null;
                 }
 
+                Variant array;
                 if (token is Array)
                 {
-                    var array = ReadVariantBody("Body", type);
-                    var dimensions = ReadInt32Array("Dimensions");
-
-                    if (array.Value is Array && dimensions != null && dimensions.Count > 1)
-                    {
-                        array = new Variant(new Matrix((Array)array.Value, type, dimensions.ToArray()));
-                    }
-
-                    return array;
+                    array = ReadVariantBody("Body", type);
                 }
                 else if (token is List<object>)
                 {
-                    return ReadVariantArrayBody("Body", type);
+                    array = ReadVariantArrayBody("Body", type);
                 }
                 else
                 {
                     return ReadVariantBody("Body", type);
                 }
+                var dimensions = ReadInt32Array("Dimensions");
+                if (array.Value is Array && dimensions != null && dimensions.Count > 1)
+                {
+                    array = new Variant(new Matrix((Array)array.Value, type, dimensions.ToArray()));
+                }
+                return array;
             }
             finally
             {
@@ -1560,6 +1586,7 @@ namespace Opc.Ua
                     {
                         return extension;
                     }
+
                     return new ExtensionObject(typeId, encodeable);
                 }
 

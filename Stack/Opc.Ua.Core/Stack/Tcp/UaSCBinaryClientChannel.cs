@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -68,10 +68,7 @@ namespace Opc.Ua.Bindings
         {
             if (endpoint != null && endpoint.SecurityMode != MessageSecurityMode.None)
             {
-                if (clientCertificate == null)
-                {
-                    throw new ArgumentNullException(nameof(clientCertificate));
-                }
+                if (clientCertificate == null) throw new ArgumentNullException(nameof(clientCertificate));
 
                 if (clientCertificate.RawData.Length > TcpMessageLimits.MaxCertificateSize)
                 {
@@ -122,15 +119,8 @@ namespace Opc.Ua.Bindings
         /// </summary>
         public IAsyncResult BeginConnect(Uri url, int timeout, AsyncCallback callback, object state)
         {
-            if (url == null)
-            {
-                throw new ArgumentNullException(nameof(url));
-            }
-
-            if (timeout <= 0)
-            {
-                throw new ArgumentException("Timeout must be greater than zero.", nameof(timeout));
-            }
+            if (url == null) throw new ArgumentNullException(nameof(url));
+            if (timeout <= 0) throw new ArgumentException("Timeout must be greater than zero.", nameof(timeout));
 
             Task task;
             lock (DataLock)
@@ -156,9 +146,22 @@ namespace Opc.Ua.Bindings
                 m_handshakeOperation = operation;
 
                 State = TcpChannelState.Connecting;
-                Socket = m_socketFactory.Create(this, BufferManager, Quotas.MaxBufferSize);
-
-                task = Task.Run(async () => await Socket.BeginConnect(m_via, m_ConnectCallback, operation));
+                if (ReverseSocket)
+                {
+                    if (Socket != null)
+                    {
+                        // send the hello message as response to the reverse hello message.
+                        SendHelloMessage(operation);
+                    }
+                }
+                else
+                {
+                    Socket = m_socketFactory.Create(this, BufferManager, Quotas.MaxBufferSize);
+                    task = Task.Run(async () =>
+                        await (Socket?.BeginConnect(
+                            m_via, m_ConnectCallback, operation,
+                            new CancellationTokenSource(timeout).Token) ?? Task.FromResult(false)));
+                }
             }
 
             return m_handshakeOperation;
@@ -169,12 +172,8 @@ namespace Opc.Ua.Bindings
         /// </summary>
         public void EndConnect(IAsyncResult result)
         {
-            WriteOperation operation = result as WriteOperation;
-
-            if (operation == null)
-            {
-                throw new ArgumentNullException(nameof(result));
-            }
+            var operation = result as WriteOperation;
+            if (operation == null) throw new ArgumentNullException(nameof(result));
 
             try
             {
@@ -237,15 +236,15 @@ namespace Opc.Ua.Bindings
                     {
                         case StatusCodes.BadRequestInterrupted:
                         case StatusCodes.BadSecureChannelClosed:
-                            {
-                                break;
-                            }
+                        {
+                            break;
+                        }
 
                         default:
-                            {
-                                Utils.Trace(e, "Could not gracefully close the channel.");
-                                break;
-                            }
+                        {
+                            Utils.Trace(e, "Could not gracefully close the channel.");
+                            break;
+                        }
                     }
                 }
                 catch (Exception e)
@@ -807,7 +806,7 @@ namespace Opc.Ua.Bindings
         {
             try
             {
-                Utils.Trace("Channel {0}: Scheduled Handshake Starting: TokenId={1}", ChannelId, CurrentToken.TokenId);
+                Utils.Trace("Channel {0}: Scheduled Handshake Starting: TokenId={1}", ChannelId, CurrentToken?.TokenId);
 
                 Task task;
                 lock (DataLock)
@@ -817,7 +816,7 @@ namespace Opc.Ua.Bindings
 
                     if (token == CurrentToken)
                     {
-                        Utils.Trace("TCP CHANNEL {0}: Attempting Renew Token Now: TokenId={1}", ChannelId, token.TokenId);
+                        Utils.Trace("TCP CHANNEL {0}: Attempting Renew Token Now: TokenId={1}", ChannelId, token?.TokenId);
 
                         // do nothing if not connected.
                         if (State != TcpChannelState.Open)
@@ -858,12 +857,18 @@ namespace Opc.Ua.Bindings
                         Socket = null;
                     }
 
-                    // create an operation.
-                    m_handshakeOperation = BeginOperation(Int32.MaxValue, m_HandshakeComplete, null);
+                    if (!ReverseSocket)
+                    {
+                        // create an operation.
+                        m_handshakeOperation = BeginOperation(Int32.MaxValue, m_HandshakeComplete, null);
 
-                    State = TcpChannelState.Connecting;
-                    Socket = m_socketFactory.Create(this, BufferManager, Quotas.MaxBufferSize);
-                    task = Task.Run(async () => await Socket.BeginConnect(m_via, m_ConnectCallback, m_handshakeOperation));
+                        State = TcpChannelState.Connecting;
+                        Socket = m_socketFactory.Create(this, BufferManager, Quotas.MaxBufferSize);
+                        task = Task.Run(async () =>
+                            await (Socket?.BeginConnect(
+                                m_via, m_ConnectCallback, m_handshakeOperation,
+                                CancellationToken.None) ?? Task.FromResult(false)));
+                    }
                 }
             }
             catch (Exception e)
@@ -1021,6 +1026,9 @@ namespace Opc.Ua.Bindings
 
                 uint channelId = ChannelId;
 
+                // close the socket.
+                State = TcpChannelState.Closed;
+
                 // dispose of the tokens.
                 ChannelId = 0;
                 DiscardTokens();
@@ -1029,9 +1037,6 @@ namespace Opc.Ua.Bindings
                 m_handshakeOperation = null;
                 m_requestedToken = null;
                 m_reconnecting = false;
-
-                // close the socket.
-                State = TcpChannelState.Closed;
 
                 if (Socket != null)
                 {

@@ -1,5 +1,5 @@
 /* ========================================================================
- * Copyright (c) 2005-2019 The OPC Foundation, Inc. All rights reserved.
+ * Copyright (c) 2005-2020 The OPC Foundation, Inc. All rights reserved.
  *
  * OPC Foundation MIT License 1.00
  * 
@@ -36,7 +36,7 @@ namespace Opc.Ua
     /// A class that defines constants used by UA applications.
     /// </summary>
     /// <exclude />
-    [System.CodeDom.Compiler.GeneratedCodeAttribute("Opc.Ua.CodeGenerator", "1.0.0.0")]
+    [System.CodeDom.Compiler.GeneratedCodeAttribute("Opc.Ua.ModelCompiler", "1.0.0.0")]
     public static partial class StatusCodes
     {
         /// <summary>
@@ -810,7 +810,7 @@ namespace Opc.Ua
         public const uint BadTcpSecureChannelUnknown = 0x807F0000;
 
         /// <summary>
-        /// The size of the message specified in the header is too large.
+        /// The size of the message chunk specified in the header is too large.
         /// </summary>
         public const uint BadTcpMessageTooLarge = 0x80800000;
 
@@ -1128,6 +1128,51 @@ namespace Opc.Ua
         /// A dependent value has been changed but the change has not been applied to the device. The quality of the dominant variable is Bad.
         /// </summary>
         public const uint BadDependentValueChanged = 0x80E30000;
+
+        /// <summary>
+        /// It is delivered with a dominant Variable value when a dependent Variable has changed but the change has not been applied.
+        /// </summary>
+        public const uint GoodEdited_DependentValueChanged = 0x01160000;
+
+        /// <summary>
+        /// It is delivered with a dependent Variable value when a dominant Variable has changed but the change has not been applied.
+        /// </summary>
+        public const uint GoodEdited_DominantValueChanged = 0x01170000;
+
+        /// <summary>
+        /// It is delivered with a dependent Variable value when a dominant or dependent Variable has changed but change has not been applied.
+        /// </summary>
+        public const uint GoodEdited_DominantValueChanged_DependentValueChanged = 0x01180000;
+
+        /// <summary>
+        /// It is delivered with a Variable value when Variable has changed but the value is not legal.
+        /// </summary>
+        public const uint BadEdited_OutOfRange = 0x81190000;
+
+        /// <summary>
+        /// It is delivered with a Variable value when a source Variable has changed but the value is not legal.
+        /// </summary>
+        public const uint BadInitialValue_OutOfRange = 0x811A0000;
+
+        /// <summary>
+        /// It is delivered with a dependent Variable value when a dominant Variable has changed and the value is not legal.
+        /// </summary>
+        public const uint BadOutOfRange_DominantValueChanged = 0x811B0000;
+
+        /// <summary>
+        /// It is delivered with a dependent Variable value when a dominant Variable has changed, the value is not legal and the change has not been applied.
+        /// </summary>
+        public const uint BadEdited_OutOfRange_DominantValueChanged = 0x811C0000;
+
+        /// <summary>
+        /// It is delivered with a dependent Variable value when a dominant or dependent Variable has changed and the value is not legal.
+        /// </summary>
+        public const uint BadOutOfRange_DominantValueChanged_DependentValueChanged = 0x811D0000;
+
+        /// <summary>
+        /// It is delivered with a dependent Variable value when a dominant or dependent Variable has changed, the value is not legal and the change has not been applied.
+        /// </summary>
+        public const uint BadEdited_OutOfRange_DominantValueChanged_DependentValueChanged = 0x811E0000;
 
         /// <summary>
         /// The communication layer has raised an event.

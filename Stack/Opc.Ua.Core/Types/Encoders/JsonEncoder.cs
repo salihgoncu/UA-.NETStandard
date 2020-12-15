@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -20,7 +20,7 @@ using System.Xml;
 namespace Opc.Ua
 {
     /// <summary>
-    /// Writes objects to a XML stream.
+    /// Writes objects to a JSON stream.
     /// </summary>
     public class JsonEncoder : IEncoder, IDisposable
     {
@@ -35,6 +35,7 @@ namespace Opc.Ua
         private uint m_nestingLevel;
         private bool m_topLevelIsArray;
         private bool m_levelOneSkipped;
+        private bool m_dontWriteClosing;
         #endregion
 
         #region Constructors
@@ -208,7 +209,7 @@ namespace Opc.Ua
         }
 
         /// <summary>
-        /// Completes writing and returns the XML text.
+        /// Completes writing and returns the JSON text.
         /// </summary>
         public string CloseAndReturnText()
         {
@@ -225,14 +226,18 @@ namespace Opc.Ua
         /// </summary>
         public int Close()
         {
-            if (m_topLevelIsArray)
+            if (!m_dontWriteClosing)
             {
-                m_writer.Write("]");
+                if (m_topLevelIsArray)
+                {
+                    m_writer.Write("]");
+                }
+                else
+                {
+                    m_writer.Write("}");
+                }
             }
-            else
-            {
-                m_writer.Write("}");
-            }
+
             m_writer.Flush();
             int length = (int)m_writer.BaseStream.Position;
             m_writer.Dispose();
@@ -313,6 +318,10 @@ namespace Opc.Ua
             m_namespaces.Pop();
         }
 
+        /// <summary>
+        /// Push the begin of a structure on the decoder stack.
+        /// </summary>
+        /// <param name="fieldName">The name of the structure field.</param>
         public void PushStructure(string fieldName)
         {
             m_nestingLevel++;
@@ -341,6 +350,10 @@ namespace Opc.Ua
             m_writer.Write("{");
         }
 
+        /// <summary>
+        /// Push the begin of an array on the decoder stack.
+        /// </summary>
+        /// <param name="fieldName">The name of the array field.</param>
         public void PushArray(string fieldName)
         {
             m_nestingLevel++;
@@ -369,6 +382,9 @@ namespace Opc.Ua
             m_writer.Write("[");
         }
 
+        /// <summary>
+        /// Pop the structure from the decoder stack.
+        /// </summary>
         public void PopStructure()
         {
             if (m_nestingLevel > 1 || m_topLevelIsArray ||
@@ -381,6 +397,9 @@ namespace Opc.Ua
             m_nestingLevel--;
         }
 
+        /// <summary>
+        /// Pop the array from the decoder stack.
+        /// </summary>
         public void PopArray()
         {
             if (m_nestingLevel > 1 || m_topLevelIsArray ||
@@ -738,7 +757,7 @@ namespace Opc.Ua
         /// </summary>
         public void WriteByteString(string fieldName, byte[] value)
         {
-            if (value == null || value.Length == 0)
+            if (value == null)
             {
                 WriteSimpleField(fieldName, null, false);
                 return;
@@ -1086,7 +1105,14 @@ namespace Opc.Ua
             if (UseReversibleEncoding && !isNull)
             {
                 PushStructure(fieldName);
-                WriteByte("Type", (byte)value.TypeInfo.BuiltInType);
+                // encode enums as int32.
+                byte encodingByte = (byte)value.TypeInfo.BuiltInType;
+                if (value.TypeInfo.BuiltInType == BuiltInType.Enumeration)
+                {
+                    encodingByte = (byte)BuiltInType.Int32;
+                }
+
+                WriteByte("Type", encodingByte);
                 fieldName = "Body";
             }
 
@@ -1208,7 +1234,7 @@ namespace Opc.Ua
                     return;
                 }
 
-                PushStructure(null);
+                PushStructure(fieldName);
                 encodeable.Encode(this);
                 PopStructure();
                 return;
@@ -1270,11 +1296,33 @@ namespace Opc.Ua
                     m_context.MaxEncodingNestingLevels);
             }
 
-
             if (value == null)
             {
                 WriteSimpleField(fieldName, null, false);
                 return;
+            }
+
+            if (m_nestingLevel == 0 && (m_commaRequired || m_topLevelIsArray))
+            {
+                if (string.IsNullOrWhiteSpace(fieldName) ^ m_topLevelIsArray)
+                {
+                    throw ServiceResultException.Create(
+                        StatusCodes.BadEncodingError,
+                        "With Array as top level, encodeables with fieldname will create invalid json");
+                }
+            }
+
+            if (m_nestingLevel == 0 && !m_commaRequired)
+            {
+                if (string.IsNullOrWhiteSpace(fieldName) && !m_topLevelIsArray)
+                {
+                    m_writer.Flush();
+                    if (m_writer.BaseStream.Length == 1) //Opening "{"
+                    {
+                        m_writer.BaseStream.Seek(0, SeekOrigin.Begin);
+                    }
+                    m_dontWriteClosing = true;
+                }
             }
 
             m_nestingLevel++;
@@ -1286,6 +1334,7 @@ namespace Opc.Ua
             PopStructure();
 
             m_nestingLevel--;
+            
         }
 
         /// <summary>
@@ -1311,6 +1360,15 @@ namespace Opc.Ua
                     WriteSimpleField(fieldName, Utils.Format("{0}_{1}", value.ToString(), numeric), true);
                 }
             }
+        }
+
+        /// <summary>
+        /// Writes an enumerated Int32 value to the stream.
+        /// </summary>
+        public void WriteEnumerated(string fieldName, int numeric)
+        {
+            var numericString = numeric.ToString(CultureInfo.InvariantCulture);
+            WriteSimpleField(fieldName, numericString, !UseReversibleEncoding);
         }
 
         /// <summary>
@@ -2047,20 +2105,50 @@ namespace Opc.Ua
                 return;
             }
 
-            PushArray(fieldName);
-
-            // check the length.
-            if (m_context.MaxArrayLength > 0 && m_context.MaxArrayLength < values.Count)
+            if (string.IsNullOrWhiteSpace(fieldName) && m_nestingLevel == 0 && !m_topLevelIsArray)
             {
-                throw new ServiceResultException(StatusCodes.BadEncodingLimitsExceeded);
-            }
+                m_writer.Flush();
+                if (m_writer.BaseStream.Length == 1) //Opening "{"
+                {
+                    m_writer.BaseStream.Seek(0, SeekOrigin.Begin);
+                }
 
-            for (int ii = 0; ii < values.Count; ii++)
+                m_nestingLevel++;
+                PushArray(fieldName);
+
+                for (int ii = 0; ii < values.Count; ii++)
+                {
+                    WriteEncodeable(null, values[ii], systemType);
+                }
+
+                PopArray();
+                m_dontWriteClosing = true;
+                m_nestingLevel--;
+
+            }
+            else if (!string.IsNullOrWhiteSpace(fieldName) && m_nestingLevel == 0 && m_topLevelIsArray)
             {
-                WriteEncodeable(null, values[ii], systemType);
+                throw ServiceResultException.Create(
+                    StatusCodes.BadEncodingError,
+                    "With Array as top level, encodeables array with filename will create invalid json");
             }
+            else
+            {
+                PushArray(fieldName);
 
-            PopArray();
+                // check the length.
+                if (m_context.MaxArrayLength > 0 && m_context.MaxArrayLength < values.Count)
+                {
+                    throw new ServiceResultException(StatusCodes.BadEncodingLimitsExceeded);
+                }
+
+                for (int ii = 0; ii < values.Count; ii++)
+                {
+                    WriteEncodeable(null, values[ii], systemType);
+                }
+
+                PopArray();
+            }
         }
 
         /// <summary>
@@ -2083,9 +2171,26 @@ namespace Opc.Ua
             }
 
             // encode each element in the array.
-            foreach (Enum value in values)
+            Type arrayType = values.GetType().GetElementType();
+            if (arrayType.IsEnum)
             {
-                WriteEnumerated(null, value);
+                foreach (Enum value in values)
+                {
+                    WriteEnumerated(null, value);
+                }
+            }
+            else
+            {
+                if (arrayType != typeof(Int32))
+                {
+                    throw new ServiceResultException(
+                        StatusCodes.BadEncodingError,
+                        Utils.Format("Type '{0}' is not allowed in an Enumeration.", arrayType.FullName));
+                }
+                foreach (Int32 value in values)
+                {
+                    WriteEnumerated(null, value);
+                }
             }
 
             PopArray();
@@ -2168,18 +2273,8 @@ namespace Opc.Ua
                     case BuiltInType.DataValue: { WriteDataValueArray(null, (DataValue[])value); return; }
                     case BuiltInType.Enumeration:
                     {
-                        Enum[] enums = value as Enum[];
-                        string[] values = new string[enums.Length];
-
-                        for (int ii = 0; ii < enums.Length; ii++)
-                        {
-                            string text = enums[ii].ToString();
-                            text += "_";
-                            text += ((int)(object)enums[ii]).ToString(CultureInfo.InvariantCulture);
-                            values[ii] = text;
-                        }
-
-                        WriteStringArray(null, values);
+                        Array array = value as Array;
+                        WriteEnumeratedArray(null, array, array.GetType().GetElementType());
                         return;
                     }
 
@@ -2212,8 +2307,20 @@ namespace Opc.Ua
             // write matrix.
             else if (typeInfo.ValueRank > 1)
             {
-                WriteMatrix(null, (Matrix)value);
-                return;
+                Matrix matrix = value as Matrix;
+                if (matrix != null)
+                {
+                    if (UseReversibleEncoding)
+                    {
+                        WriteVariantContents(matrix.Elements, new TypeInfo(typeInfo.BuiltInType, 1));
+                    }
+                    else
+                    {
+                        int index = 0;
+                        WriteStructureMatrix(matrix, 0, ref index, typeInfo);
+                    }
+                    return;
+                }
             }
 
             // oops - should never happen.
@@ -2225,9 +2332,44 @@ namespace Opc.Ua
 
         #region Private Methods
         /// <summary>
-        /// Writes an DataValue array to the stream.
+        /// Write multi dimensional array in structure.
         /// </summary>
-        private void WriteMatrix(string fieldName, Matrix value)
+        private void WriteStructureMatrix(
+            Matrix matrix,
+            int dim,
+            ref int index,
+            TypeInfo typeInfo)
+        {
+            var arrayLen = matrix.Dimensions[dim];
+            if (dim == matrix.Dimensions.Length - 1)
+            {
+                // Create a slice of values for the top dimension
+                var copy = Array.CreateInstance(
+                    matrix.Elements.GetType().GetElementType(), arrayLen);
+                Array.Copy(matrix.Elements, index, copy, 0, arrayLen);
+                // Write slice as value rank
+                if (m_commaRequired)
+                {
+                    m_writer.Write(",");
+                }
+                WriteVariantContents(copy, new TypeInfo(typeInfo.BuiltInType, 1));
+                index += arrayLen;
+            }
+            else
+            {
+                PushArray(null);
+                for (var i = 0; i < arrayLen; i++)
+                {
+                    WriteStructureMatrix(matrix, dim + 1, ref index, typeInfo);
+                }
+                PopArray();
+            }
+        }
+
+        /// <summary>
+        /// Write multi dimensional array in Variant.
+        /// </summary>
+        private void WriteVariantMatrix(string fieldName, Matrix value)
         {
             PushStructure(fieldName);
             WriteVariant("Matrix", new Variant(value.Elements, new TypeInfo(value.TypeInfo.BuiltInType, ValueRanks.OneDimension)));

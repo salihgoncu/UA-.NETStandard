@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -12,6 +12,7 @@
 
 
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Opc.Ua.Bindings
@@ -135,9 +136,18 @@ namespace Opc.Ua.Bindings
         int Handle { get; }
 
         /// <summary>
+        /// Returns the features implemented by the message socket.
+        /// </summary>
+        TransportChannelFeatures MessageSocketFeatures { get; }
+
+        /// <summary>
         /// Connects to an endpoint.
         /// </summary>
-        Task<bool> BeginConnect(Uri endpointUrl, EventHandler<IMessageSocketAsyncEventArgs> callback, object state);
+        Task<bool> BeginConnect(
+            Uri endpointUrl,
+            EventHandler<IMessageSocketAsyncEventArgs> callback,
+            object state,
+            CancellationToken cts);
 
         /// <summary>
         /// Forcefully closes the socket.
@@ -165,6 +175,9 @@ namespace Opc.Ua.Bindings
         #endregion
 
         #region Event factory
+        /// <summary>
+        /// Get the message socket event args.
+        /// </summary>
         IMessageSocketAsyncEventArgs MessageSocketEventArgs();
         #endregion
     }

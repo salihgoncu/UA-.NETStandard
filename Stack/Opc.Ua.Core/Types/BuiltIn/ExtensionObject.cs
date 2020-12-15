@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -321,19 +321,8 @@ namespace Opc.Ua
         /// </summary>
         /// <param name="body">The body of the object: IEncodeable, XmlElement or Byte-array</param>
         public ExtensionObject(object body)
+            : this(ExpandedNodeId.Null, body)
         {
-            IEncodeable encodeable = body as IEncodeable;
-
-            if (encodeable != null)
-            {
-                m_typeId = ExpandedNodeId.Null;
-                m_encoding = ExtensionObjectEncoding.EncodeableObject;
-                m_body = encodeable;
-            }
-            else
-            {
-                Body = body;
-            }
         }
 
         /// <summary>
@@ -350,7 +339,7 @@ namespace Opc.Ua
             Body = body;
         }
 
-        [OnSerializing()]
+        [OnSerializing]
         private void UpdateContext(StreamingContext context)
         {
             m_context = MessageContextExtension.CurrentContext;
@@ -359,7 +348,7 @@ namespace Opc.Ua
         /// <summary>
         /// Initializes the object during deserialization.
         /// </summary>
-        [OnDeserializing()]
+        [OnDeserializing]
         private void Initialize(StreamingContext context)
         {
             m_typeId = ExpandedNodeId.Null;
@@ -640,7 +629,7 @@ namespace Opc.Ua
         /// <summary>
         /// Converts an array of extension objects to an array of the specified type.
         /// </summary>
-        /// <param name="extensions">The array to convert.</param>
+        /// <param name="source">The array to convert.</param>
         /// <param name="elementType">The type of each element.</param>
         /// <returns>The new array</returns>
         /// <remarks>
@@ -668,6 +657,42 @@ namespace Opc.Ua
             }
 
             return output;
+        }
+
+        /// <summary>
+        /// Converts an array of extension objects to a List of the specified type.
+        /// </summary>
+        /// <param name="source">The array to convert.</param>
+        /// <returns>The new typed List</returns>
+        /// <remarks>
+        /// Will add null elements if individual elements cannot be converted.
+        /// </remarks>
+        public static List<T> ToList<T>(object source) where T : class
+        {
+            var extensions = source as Array;
+
+            if (extensions == null)
+            {
+                return null;
+            }
+
+            List<T> list = new List<T>();
+
+            for (int ii = 0; ii < extensions.Length; ii++)
+            {
+                IEncodeable element = ToEncodeable(extensions.GetValue(ii) as ExtensionObject);
+
+                if (typeof(T).IsInstanceOfType(element))
+                {
+                    list.Add((T)element);
+                }
+                else
+                {
+                    list.Add(null);
+                }
+            }
+
+            return list;
         }
 
         /// <summary>
@@ -751,7 +776,7 @@ namespace Opc.Ua
 
                 if (encodeable != null)
                 {
-                    m_typeId = null;
+                    m_typeId = ExpandedNodeId.Null;
                 }
 
                 // close decoder.

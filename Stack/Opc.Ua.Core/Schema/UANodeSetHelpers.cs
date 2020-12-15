@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -189,7 +189,7 @@ namespace Opc.Ua.Export
                     UAMethod value = new UAMethod();
                     value.Executable = o.Executable;
 
-                    if (o.TypeDefinitionId != o.NodeId)
+                    if (o.TypeDefinitionId != null && !o.TypeDefinitionId.IsNullNodeId && o.TypeDefinitionId != o.NodeId)
                     {
                         value.MethodDeclarationId = Export(o.TypeDefinitionId, context.NamespaceUris);
                     }
@@ -299,6 +299,7 @@ namespace Opc.Ua.Export
             exportedNode.ReleaseStatus = node.ReleaseStatus;
             exportedNode.WriteMask = (uint)node.WriteMask;
             exportedNode.UserWriteMask = (uint)node.UserWriteMask;
+            exportedNode.Extensions = node.Extensions;
 
             if (!String.IsNullOrEmpty(node.SymbolicName) && node.SymbolicName != node.BrowseName.Name)
             {
@@ -627,6 +628,7 @@ namespace Opc.Ua.Export
             importedNode.ReleaseStatus = node.ReleaseStatus;
             importedNode.WriteMask = (AttributeWriteMask)node.WriteMask;
             importedNode.UserWriteMask = (AttributeWriteMask)node.UserWriteMask;
+            importedNode.Extensions = node.Extensions;
 
             if (!String.IsNullOrEmpty(node.SymbolicName))
             {
@@ -670,6 +672,14 @@ namespace Opc.Ua.Export
 
                     importedNode.AddReference(referenceTypeId, isInverse, targetId);
                 }
+            }
+
+            string parentNodeId = (node as UAInstance)?.ParentNodeId;
+
+            if (!String.IsNullOrEmpty(parentNodeId))
+            {
+                // set parent NodeId in Handle property.
+                importedNode.Handle = ImportNodeId(parentNodeId, context.NamespaceUris, true);
             }
 
             return importedNode;
@@ -792,6 +802,18 @@ namespace Opc.Ua.Export
             if (String.IsNullOrEmpty(source))
             {
                 return Opc.Ua.ExpandedNodeId.Null;
+            }
+            // lookup aliases
+            if (this.Aliases != null)
+            {
+                for (int ii = 0; ii < this.Aliases.Length; ii++)
+                {
+                    if (this.Aliases[ii].Alias == source)
+                    {
+                        source = this.Aliases[ii].Value;
+                        break;
+                    }
+                }
             }
 
             // parse the node.

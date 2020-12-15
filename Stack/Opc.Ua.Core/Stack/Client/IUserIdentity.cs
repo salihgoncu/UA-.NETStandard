@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -31,6 +31,7 @@ namespace Opc.Ua
         /// <value>The user token policy.</value>
         string PolicyId { get; }
 
+        /// <summary>
         /// The type of identity token used.
         /// </summary>
         /// <value>The type of the token.</value>
@@ -47,6 +48,11 @@ namespace Opc.Ua
         /// </summary>
         /// <value><c>true</c> if signatures are supported; otherwise, <c>false</c>.</value>
         bool SupportsSignatures { get; }
+
+        /// <summary>
+        /// Get or sets the list of granted role ids associated to the UserIdentity.
+        /// </summary>
+        NodeIdCollection GrantedRoleIds { get; set; }
 
         /// <summary>
         /// Returns a UA user identity token containing the user information.

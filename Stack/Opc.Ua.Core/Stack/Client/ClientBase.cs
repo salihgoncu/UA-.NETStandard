@@ -1,4 +1,4 @@
-/* Copyright (c) 1996-2019 The OPC Foundation. All rights reserved.
+/* Copyright (c) 1996-2020 The OPC Foundation. All rights reserved.
    The source code in this file is covered under a dual-license scenario:
      - RCL: for OPC Foundation members in good-standing
      - GPL V2: everybody else
@@ -34,11 +34,11 @@ namespace Opc.Ua
             m_channel = channel;
             m_useTransportChannel = true;
 
-            WcfChannelBase wcfChannel = channel as WcfChannelBase;
+            UaChannelBase uaChannel = channel as UaChannelBase;
 
-            if (wcfChannel != null)
+            if (uaChannel != null)
             {
-                m_useTransportChannel = wcfChannel.m_wcfBypassChannel != null || wcfChannel.UseBinaryEncoding;
+                m_useTransportChannel = uaChannel.m_uaBypassChannel != null || uaChannel.UseBinaryEncoding;
             }
         }
         #endregion
