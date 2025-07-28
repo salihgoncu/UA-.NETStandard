@@ -29,10 +29,12 @@
 
 using System;
 using NUnit.Framework;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Opc.Ua.PubSub.Tests.Configuration
 {
     [TestFixture(Description = "Tests for UaPubSubDataStore class")]
+    [Parallelizable]
     public class UaPubSubDataStoreTests
     {
         #region WritePublishedDataItem

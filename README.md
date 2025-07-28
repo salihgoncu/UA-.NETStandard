@@ -22,14 +22,44 @@ More samples based on the official [Nuget](https://www.nuget.org/packages/OPCFou
 * Reference sample Server and Client. 
 * X.509 [Certificate](Docs/Certificates.md) support for client and server authentication.
 * SHA-2 support (up to SHA512) including security profile Basic256Sha256, Aes128Sha256RsaOaep and  Aes256Sha256RsaPss for configurations with high security needs.
+* ECC Security policies ECC_nistP256, ECC_nistP384, ECC_brainpoolP256r1 and ECC_brainpoolP384r1.
 * Anonymous, username and X.509 certificate user authentication.
 * UA-TCP & HTTPS transports (client and server).
 * [Reverse Connect](Docs/ReverseConnect.md) for the UA-TCP transport (client and server).
 * Folder & OS-level (X509Store) [Certificate Stores](Docs/Certificates.md) with *Global Discovery Server* and *Server Push* support.
-* Sessions and Subscriptions.
+* Sessions and (durable) Subscriptions.
 * A [PubSub](Docs/PubSub.md) library with samples.
 
-#### **New in 1.4.368**
+### Key Features and Updates in OPC UA 1.05
+
+- **Security Enhancements**: Improved encryption and authentication mechanisms.
+- **CRL Support**: Added Certificate Revocation List support for X509Store on Windows.
+- **Performance Improvements**: Faster binary encoding and decoding, reducing memory usage and latency.
+- **Role-Based Management**: Support for WellKnownRoles and RoleBasedUserManagement [WellKnownRoles & RoleBasedUserManagement](Docs/RoleBasedUserManagement.md).
+- **Improved Logging**: Enhanced logging with `ILogger` and `EventSource`.
+- **ECC Profiles**: Support for NIST & Brainpool [Security Profiles](Docs/EccProfiles.md).
+- **Durable Subscriptions**: Support for Durable Subscriptions [Durable Subscriptions](Docs/DurableSubscription.md).
+
+#### Breaking Changes and Heads-Up when upgrading from 1.04 to 1.05
+
+- A few features are still missing to fully comply for 1.05, but certification for V1.04 is still possible with the 1.05 release.
+- **Thread Safety and Locking**: Improved thread safety and reduced locking in secure channel operations.
+- **Audit and Redaction**: New interfaces for auditing and redacting sensitive information.
+
+#### **New in 1.05.376.**
+* Support for [Durable Subscriptions](Docs/DurableSubscription.md)
+
+#### **New in 1.05.375**
+* Support for [ECC Certificates](Docs/EccProfiles.md).
+
+#### **New in 1.05.374.70**
+* CRL Support for the X509Store on Windows
+
+#### **New in 1.05.373**
+* 1.05 Nodeset
+* Support for [WellKnownRoles & RoleBasedUserManagement](Docs/RoleBasedUserManagement.md).
+
+#### **New in 1.04.368**
 * Improved support for [Logging](Docs/Logging.md) with `ILogger` and `EventSource`. 
 * Support for custom certificate stores with refactored `ICertificateStore` and `CertificateStoreType` interface.
 * Client and Server support for [TransferSubscriptions](Docs/TransferSubscription.md).
@@ -37,9 +67,8 @@ More samples based on the official [Nuget](https://www.nuget.org/packages/OPCFou
 
 #### Samples and Nuget packages
 
-* OPC UA [Reference Server](Applications/ReferenceServer) and [Reference Client](Applications/ReferenceClient) for .NET Framework.
 * OPC UA [Console Reference Server](Applications/ConsoleReferenceServer) for .NET Core. A Linux Container of the latest builds is available [here](https://github.com/OPCFoundation/UA-.NETStandard/pkgs/container/uanetstandard%2Frefserver). See also [Container support](Docs/ContainerReferenceServer.md).
-* The OPC UA [Reference Server](Applications/ReferenceServer/README.md) has been certified for compliance through an OPC Foundation Certification Test Lab. Fixes and enhancements since the certification process have been tested and verified for compliance using the [Compliance Test Tool (CTT)](https://opcfoundation.org/developer-tools/certification-test-tools/opc-ua-compliance-test-tool-uactt/). 
+* The OPC UA [Reference Server](Applications/README.md) has been certified for compliance through an OPC Foundation Certification Test Lab. Fixes and enhancements since the certification process have been tested and verified for compliance using the [Compliance Test Tool (CTT)](https://opcfoundation.org/developer-tools/certification-test-tools/opc-ua-compliance-test-tool-uactt/). 
     All releases are verified for compliance with the latest official Compliance Test Tool by the maintainers.
 * OPC UA [Console Reference Publisher](Applications/ConsoleReferencePublisher/README.md) and [Console Reference Subscriber](Applications/ConsoleReferenceSubscriber/README.md) for .NET Core and .NET Framework.
 * An official OPC UA [Nuget](https://www.nuget.org/packages/OPCFoundation.NetStandard.Opc.Ua/) package of the core, client, server and configuration libraries is available for integration in .NET projects. Note: The package has been split into [Core](https://www.nuget.org/packages/OPCFoundation.NetStandard.Opc.Ua.Core/), [Client](https://www.nuget.org/packages/OPCFoundation.NetStandard.Opc.Ua.Client/) and [Server](https://www.nuget.org/packages/OPCFoundation.NetStandard.Opc.Ua.Server/) packages to reduce the dependencies in projects where only client or server is needed. The [https binding](https://www.nuget.org/packages/OPCFoundation.NetStandard.Opc.Ua.Bindings.Https/) is now a seperate optional package.
@@ -60,7 +89,7 @@ More samples based on the official [Nuget](https://www.nuget.org/packages/OPCFou
 [![Github Actions](https://github.com/OPCFoundation/UA-.NETStandard/actions/workflows/buildandtest.yml/badge.svg)](https://github.com/OPCFoundation/UA-.NETStandard/actions/workflows/buildandtest.yml)
 
 ### Code Quality
-[![Test Status](https://img.shields.io/azure-devops/tests/opcfoundation/opcua-netstandard/14?style=plastic)](https://opcfoundation.visualstudio.com/opcua-netstandard/_test/analytics?definitionId=14&contextType=build)
+[![Tests](https://img.shields.io/azure-devops/tests/opcfoundation/opcua-netstandard/14/master?style=plastic&label=Tests)](https://opcfoundation.visualstudio.com/opcua-netstandard/_test/analytics?definitionId=14&contextType=build)
 [![CodeQL](https://github.com/OPCFoundation/UA-.NETStandard/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/OPCFoundation/UA-.NETStandard/actions/workflows/codeql-analysis.yml)
 [![Coverage Status](https://codecov.io/gh/OPCFoundation/UA-.NETStandard/branch/master/graph/badge.svg?token=vDf5AnilUt)](https://codecov.io/gh/OPCFoundation/UA-.NETStandard)
 
@@ -71,8 +100,8 @@ All the tools you need for .NET Standard come with the .NET Core tools. See [Get
 
 Note: Since .NET Core 2.1 is end of life, 
 - VS 2017 has only limited support for .NET 4.8. 
-- VS 2019 is fully supported with .NET 4.8 and up to .NET Core 3.1 (end of life). 
-- VS 2022 is the current supported version, including .NET 6.0 (LTS). 
+- VS 2019 has only limited support for .NET 4.8 because .NET Core 3.1 reached end of life. 
+- VS 2022 is the current supported version, including .NET 6.0 (LTS) and .NET 8.0 (LTS). 
 
 1. Open the UA Reference.sln solution file using Visual Studio. 
 2. Choose a project in the Solution Explorer and set it with a right click as `Startup Project`.

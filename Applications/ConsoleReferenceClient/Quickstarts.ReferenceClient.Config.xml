@@ -12,13 +12,44 @@
   <SecurityConfiguration>
 
     <!-- Where the application instance certificate is stored (MachineDefault) -->
-    <ApplicationCertificate>
-      <StoreType>Directory</StoreType>
-      <StorePath>%LocalApplicationData%/OPC Foundation/pki/own</StorePath>
-      <SubjectName>CN=Console Reference Client, C=US, S=Arizona, O=OPC Foundation, DC=localhost</SubjectName>
-    </ApplicationCertificate>
-
-   <!-- Where the issuer certificate are stored (certificate authorities) -->
+    <ApplicationCertificates>
+      <CertificateIdentifier>
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC Foundation/pki/own</StorePath>
+        <SubjectName>CN=Quickstart Reference Client, C=US, S=Arizona, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>RsaSha256</CertificateTypeString>
+      </CertificateIdentifier>
+      <CertificateIdentifier>
+        <!-- <TypeId>NistP256</TypeId> -->
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC Foundation/pki/own</StorePath>
+        <SubjectName>CN=Quickstart Reference Client, C=US, S=Arizona, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>NistP256</CertificateTypeString>
+      </CertificateIdentifier>
+      <CertificateIdentifier>
+        <!-- <TypeId>NistP384</TypeId> -->
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC Foundation/pki/own</StorePath>
+        <SubjectName>CN=Quickstart Reference client, C=US, S=Arizona, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>NistP384</CertificateTypeString>
+      </CertificateIdentifier>
+      <CertificateIdentifier>
+        <!-- <TypeId>BrainpoolP256r1</TypeId> -->
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC Foundation/pki/own</StorePath>
+        <SubjectName>CN=Quickstart Reference Client, C=US, S=Arizona, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>BrainpoolP256r1</CertificateTypeString>
+      </CertificateIdentifier>
+      <CertificateIdentifier>
+        <!-- <TypeId>BrainpoolP384r1</TypeId> -->
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC Foundation/pki/own</StorePath>
+        <SubjectName>CN=Quickstart Reference Client, C=US, S=Arizona, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>BrainpoolP384r1</CertificateTypeString>
+      </CertificateIdentifier>
+    </ApplicationCertificates>
+    
+    <!-- Where the issuer certificate are stored (certificate authorities) -->
     <TrustedIssuerCertificates>
       <StoreType>Directory</StoreType>
       <StorePath>%LocalApplicationData%/OPC Foundation/pki/issuer</StorePath>
@@ -30,17 +61,18 @@
       <StorePath>%LocalApplicationData%/OPC Foundation/pki/trusted</StorePath>
     </TrustedPeerCertificates>
 
-    <!-- The directory used to store invalid certficates for later review by the administrator. -->
+    <!-- The directory used to store invalid certificates for later review by the administrator. -->
     <RejectedCertificateStore>
       <StoreType>Directory</StoreType>
       <StorePath>%LocalApplicationData%/OPC Foundation/pki/rejected</StorePath>
     </RejectedCertificateStore>
-
+    <MaxRejectedCertificates>5</MaxRejectedCertificates>
+    
     <!-- WARNING: The following setting (to automatically accept untrusted certificates) should be used
     for easy debugging purposes ONLY and turned off for production deployments! -->
     <AutoAcceptUntrustedCertificates>false</AutoAcceptUntrustedCertificates>
 
-    <!-- WARNING: SHA1 signed certficates are by default rejected and should be phased out. 
+    <!-- WARNING: SHA1 signed certificates are by default rejected and should be phased out. 
        only nano and embedded profiles are allowed to use sha1 signed certificates. -->
     <RejectSHA1SignedCertificates>true</RejectSHA1SignedCertificates>
     <RejectUnknownRevocationStatus>true</RejectUnknownRevocationStatus>
@@ -48,12 +80,17 @@
     <AddAppCertToTrustedStore>false</AddAppCertToTrustedStore>
     <SendCertificateChain>true</SendCertificateChain>
 
+    <!-- Where the User issers list is stored-->
+    <UserIssuerCertificates>
+      <StoreType>Directory</StoreType>
+      <StorePath>%LocalApplicationData%/OPC Foundation/pki/userIssuer</StorePath>
+    </UserIssuerCertificates>
+    
     <!-- Where the User trust list is stored-->
     <TrustedUserCertificates>
       <StoreType>Directory</StoreType>
       <StorePath>%LocalApplicationData%/OPC Foundation/pki/trustedUser</StorePath>
     </TrustedUserCertificates>
-
   </SecurityConfiguration>
   
   <TransportConfigurations></TransportConfigurations>

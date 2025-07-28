@@ -47,7 +47,7 @@ namespace Opc.Ua.Server
         public AggregateManager(IServerInternal server)
         {
             m_server = server;
-            m_factories = new Dictionary<NodeId,AggregatorFactory>();
+            m_factories = new NodeIdDictionary<AggregatorFactory>();
             m_minimumProcessingInterval = 1000;
         }
         #endregion
@@ -158,7 +158,7 @@ namespace Opc.Ua.Server
         /// <param name="endTime">When to stop processing.</param>
         /// <param name="processingInterval">The processing interval.</param>
         /// <param name="stepped">Whether stepped interpolation should be used.</param>
-        /// <param name="configuration">The configuaration to use.</param>
+        /// <param name="configuration">The configuration to use.</param>
         /// <returns></returns>
         public IAggregateCalculator CreateCalculator(
             NodeId aggregateId,
@@ -235,10 +235,10 @@ namespace Opc.Ua.Server
         #endregion
 
         #region Private Fields
-        private object m_lock = new object();
+        private readonly object m_lock = new object();
         private IServerInternal m_server;
         private AggregateConfiguration m_defaultConfiguration;
-        private Dictionary<NodeId,AggregatorFactory> m_factories;
+        private NodeIdDictionary<AggregatorFactory> m_factories;
         private double m_minimumProcessingInterval;
         #endregion
     }

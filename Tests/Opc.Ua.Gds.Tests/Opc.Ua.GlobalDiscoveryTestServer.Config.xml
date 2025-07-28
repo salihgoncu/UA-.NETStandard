@@ -10,11 +10,38 @@
   <ApplicationType>Server_0</ApplicationType>
 
   <SecurityConfiguration>
-    <ApplicationCertificate>
-      <StoreType>Directory</StoreType>
-      <StorePath>%LocalApplicationData%/OPC/GDS/own</StorePath>
-      <SubjectName>CN=Global Discovery Test Server, O=OPC Foundation, DC=localhost</SubjectName>
-    </ApplicationCertificate>
+    <ApplicationCertificates>
+      <CertificateIdentifier>
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC/GDS/own</StorePath>
+        <SubjectName>CN=Global Discovery Test Server, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>RsaSha256</CertificateTypeString>
+      </CertificateIdentifier>
+      <CertificateIdentifier>
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC/GDS/own</StorePath>
+        <SubjectName>CN=Global Discovery Test Server, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>NistP256</CertificateTypeString>
+      </CertificateIdentifier>
+      <CertificateIdentifier>
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC/GDS/own</StorePath>
+        <SubjectName>CN=Global Discovery Test Server, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>NistP384</CertificateTypeString>
+      </CertificateIdentifier>
+      <CertificateIdentifier>
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC/GDS/own</StorePath>
+        <SubjectName>CN=Global Discovery Test Server, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>BrainpoolP256r1</CertificateTypeString>
+      </CertificateIdentifier>
+      <CertificateIdentifier>
+        <StoreType>Directory</StoreType>
+        <StorePath>%LocalApplicationData%/OPC/GDS/own</StorePath>
+        <SubjectName>CN=Global Discovery Test Server, O=OPC Foundation, DC=localhost</SubjectName>
+        <CertificateTypeString>BrainpoolP384r1</CertificateTypeString>
+      </CertificateIdentifier>
+    </ApplicationCertificates>
 
     <TrustedIssuerCertificates>
       <StoreType>Directory</StoreType>
@@ -35,7 +62,7 @@
     for easy debugging purposes ONLY and turned off for production deployments! -->
     <AutoAcceptUntrustedCertificates>true</AutoAcceptUntrustedCertificates>
 
-    <!-- WARNING: SHA1 signed certficates are by default rejected and should be phased out. -->
+    <!-- WARNING: SHA1 signed certificates are by default rejected and should be phased out. -->
     <RejectSHA1SignedCertificates>false</RejectSHA1SignedCertificates>
     <MinimumCertificateKeySize>1024</MinimumCertificateKeySize>
     <AddAppCertToTrustedStore>false</AddAppCertToTrustedStore>
@@ -136,7 +163,13 @@
         <CertificateGroups>
           <CertificateGroupConfiguration>
             <Id>Default</Id>
-            <CertificateType>RsaSha256ApplicationCertificateType</CertificateType>
+            <CertificateTypes>
+              <ua:String>RsaSha256ApplicationCertificateType</ua:String>
+              <ua:String>EccNistP256ApplicationCertificateType</ua:String>
+              <ua:String>EccNistP384ApplicationCertificateType</ua:String>
+              <ua:String>EccBrainpoolP256r1ApplicationCertificateType</ua:String>
+              <ua:String>EccBrainpoolP384r1ApplicationCertificateType</ua:String>
+            </CertificateTypes>
             <SubjectName>CN=GDS Test CA, O=OPC Foundation</SubjectName>
             <BaseStorePath>%LocalApplicationData%/OPC/GDS/CA/default</BaseStorePath>
             <DefaultCertificateLifetime>12</DefaultCertificateLifetime>
@@ -149,6 +182,7 @@
         </CertificateGroups>
         <KnownHostNames/>
         <DatabaseStorePath>%LocalApplicationData%/OPC/GDS/gdsdb.json</DatabaseStorePath>
+        <UsersDatabaseStorePath>%LocalApplicationData%/OPC/GDS/gdsusersdb.json</UsersDatabaseStorePath>
       </GlobalDiscoveryServerConfiguration>
     </ua:XmlElement>
   </Extensions>

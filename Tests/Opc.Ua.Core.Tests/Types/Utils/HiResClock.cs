@@ -30,7 +30,10 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using BenchmarkDotNet.Attributes;
 using NUnit.Framework;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+
 
 namespace Opc.Ua.Core.Tests.Types.UtilsTests
 {
@@ -95,7 +98,7 @@ namespace Opc.Ua.Core.Tests.Types.UtilsTests
         }
 
         /// <summary>
-        /// Validate tick counts forward only and has at least one tick per millsecond resolution.
+        /// Validate tick counts forward only and has at least one tick per millisecond resolution.
         /// </summary>
         [Theory, Order(200)]
         public void HiResClockTickCount(bool disabled)
@@ -178,6 +181,62 @@ namespace Opc.Ua.Core.Tests.Types.UtilsTests
             {
                 Assert.Inconclusive(ex.Message);
             }
+        }
+        #endregion
+
+        #region Benchmarks
+        /// <summary>
+        /// Test the overhead and perf of the Stopwatch timer.
+        /// </summary>
+        [Benchmark]
+        public void DateTimeTicks()
+        {
+            _ = DateTime.UtcNow.Ticks;
+        }
+
+        [Benchmark]
+        public void StopwatchGetTimestamp()
+        {
+            _ = Stopwatch.GetTimestamp();
+        }
+
+        [Benchmark]
+        public void HiResClockTicks()
+        {
+            _ = HiResClock.Ticks;
+        }
+
+        [Benchmark]
+        public void HiResTickCount64()
+        {
+            _ = HiResClock.TickCount64;
+        }
+
+        /// <summary>
+        /// Resolution of the following ticks is limited
+        /// to 1ms and the timer tick, e.g. 16ms on windows.
+        /// </summary>
+        [Benchmark]
+        public void EnvironmentTicks()
+        {
+            _ = Environment.TickCount;
+        }
+
+        [DllImport("kernel32")]
+        private extern static UInt64 GetTickCount64();
+
+        [Benchmark]
+        public void WindowsGetTickCount64()
+        {
+            _ = GetTickCount64();
+        }
+
+        [Benchmark]
+        public void EnvironmentTickCount64()
+        {
+#if NET6_0_OR_GREATER
+            _ = Environment.TickCount64;
+#endif
         }
         #endregion
     }

@@ -18,7 +18,7 @@ using Opc.Ua.Security.Certificates;
 namespace Opc.Ua
 {
     /// <summary>
-    /// An abstract interface to certficate stores.
+    /// An abstract interface to certificate stores.
     /// </summary>
     public interface ICertificateStore : IDisposable
     {
@@ -48,6 +48,14 @@ namespace Opc.Ua
         string StorePath { get; }
 
         /// <summary>
+        /// Gets a value indicating whether any private keys are found in the store.
+        /// </summary>
+        /// <value>
+        ///   <c>true</c> if [no private keys]; otherwise, <c>false</c>.
+        /// </value>
+        bool NoPrivateKeys { get; }
+
+        /// <summary>
         /// Enumerates the certificates in the store.
         /// </summary>
         Task<X509Certificate2Collection> Enumerate();
@@ -60,6 +68,14 @@ namespace Opc.Ua
         Task Add(X509Certificate2 certificate, string password = null);
 
         /// <summary>
+        /// Adds a rejected certificate chain to the store.
+        /// </summary>
+        /// <param name="certificates">The certificate collection.</param>
+        /// <param name="maxCertificates">The max number of rejected certificates to keep in the store.
+        /// A negative number keeps no history, 0 is unlimited.</param>
+        Task AddRejected(X509Certificate2Collection certificates, int maxCertificates);
+
+        /// <summary>
         /// Deletes a certificate from the store.
         /// </summary>
         /// <param name="thumbprint">The thumbprint.</param>
@@ -67,7 +83,7 @@ namespace Opc.Ua
         Task<bool> Delete(string thumbprint);
 
         /// <summary>
-        /// Finds the certificate with the specified thumprint.
+        /// Finds the certificate with the specified thumbprint.
         /// </summary>
         /// <param name="thumbprint">The thumbprint.</param>
         /// <returns>The matching certificate</returns>
@@ -79,14 +95,27 @@ namespace Opc.Ua
         bool SupportsLoadPrivateKey { get; }
 
         /// <summary>
-        /// Finds the certificate with the specified thumprint.
+        /// Finds the certificate with the specified thumbprint.
         /// </summary>
         /// <param name="thumbprint">The thumbprint.</param>
         /// <param name="subjectName">The certificate subject.</param>
         /// <param name="password">The certificate password.</param>
         /// <remarks>Returns always null if SupportsLoadPrivateKey returns false.</remarks>
         /// <returns>The matching certificate with private key</returns>
+        [Obsolete("Method is deprecated. Use only for RSA certificates, the replacing LoadPrivateKey with certificateType parameter should be used.")]
         Task<X509Certificate2> LoadPrivateKey(string thumbprint, string subjectName, string password);
+
+        /// <summary>
+        /// Finds the certificate with the specified thumbprint.
+        /// </summary>
+        /// <param name="thumbprint">The thumbprint.</param>
+        /// <param name="subjectName">The certificate subject.</param>
+        /// <param name="applicationUri">The application uri in the cert extension.</param>
+        /// <param name="certificateType">The certificate type to load.</param>
+        /// <param name="password">The certificate password.</param>
+        /// <remarks>Returns always null if SupportsLoadPrivateKey returns false.</remarks>
+        /// <returns>The matching certificate with private key</returns>
+        Task<X509Certificate2> LoadPrivateKey(string thumbprint, string subjectName, string applicationUri, NodeId certificateType, string password);
 
         /// <summary>
         /// Checks if issuer has revoked the certificate.

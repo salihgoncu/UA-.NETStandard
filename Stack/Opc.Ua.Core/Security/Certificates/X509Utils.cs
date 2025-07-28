@@ -14,9 +14,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Opc.Ua.Security.Certificates;
 
@@ -32,7 +34,7 @@ namespace Opc.Ua
         /// </summary>
         /// <param name="certificate">The certificate.</param>
         /// <returns>The DNS names.</returns>
-        public static IList<string> GetDomainsFromCertficate(X509Certificate2 certificate)
+        public static IList<string> GetDomainsFromCertificate(X509Certificate2 certificate)
         {
             List<string> dnsNames = new List<string>();
 
@@ -43,7 +45,7 @@ namespace Opc.Ua
 
             for (int ii = 0; ii < fields.Count; ii++)
             {
-                if (fields[ii].StartsWith("DC="))
+                if (fields[ii].StartsWith("DC=", StringComparison.Ordinal))
                 {
                     if (builder.Length > 0)
                     {
@@ -120,6 +122,31 @@ namespace Opc.Ua
         }
 
         /// <summary>
+        /// Returns the size of the public key of a given certificate
+        /// </summary>
+        /// <param name="certificate">The certificate</param>
+        public static int GetPublicKeySize(X509Certificate2 certificate)
+        {
+            using (RSA rsaPublicKey = certificate.GetRSAPublicKey())
+            {
+                if (rsaPublicKey != null)
+                {
+                    return rsaPublicKey.KeySize;
+                }
+            }
+
+            using (ECDsa ecdsaPublicKey = certificate.GetECDsaPublicKey())
+            {
+                if (ecdsaPublicKey != null)
+                {
+                    return ecdsaPublicKey.KeySize;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
         /// Extracts the application URI specified in the certificate.
         /// </summary>
         /// <param name="certificate">The certificate.</param>
@@ -177,7 +204,7 @@ namespace Opc.Ua
                 return false;
             }
 
-            IList<string> domainNames = GetDomainsFromCertficate(certificate);
+            IList<string> domainNames = GetDomainsFromCertificate(certificate);
 
             for (int jj = 0; jj < domainNames.Count; jj++)
             {
@@ -323,6 +350,8 @@ namespace Opc.Ua
             return CompareDistinguishedNameFields(parsedName, certificateName);
         }
 
+        private static readonly char[] anyOf = new char[] { '/', ',', '=' };
+
         /// <summary>
         /// Parses a distingushed name.
         /// </summary>
@@ -415,7 +444,7 @@ namespace Opc.Ua
                     buffer.Append(key);
                     buffer.Append('=');
 
-                    if (value.IndexOfAny(new char[] { '/', ',', '=' }) != -1)
+                    if (value.IndexOfAny(anyOf) != -1)
                     {
                         if (value.Length > 0 && value[0] != '"')
                         {
@@ -463,6 +492,50 @@ namespace Opc.Ua
         }
 
         /// <summary>
+        /// Return if a certificate has a ECDsa signature.
+        /// </summary>
+        /// <param name="cert">The certificate to test.</param>
+        public static bool IsECDsaSignature(X509Certificate2 cert)
+        {
+            return X509PfxUtils.IsECDsaSignature(cert);
+        }
+
+        /// <summary>
+        /// Return a qualifier string if a ECDsa signature algorithm used.
+        /// </summary>
+        /// <param name="certificate">The certificate.</param>
+        public static string GetECDsaQualifier(X509Certificate2 certificate)
+        {
+            return EccUtils.GetECDsaQualifier(certificate);
+        }
+
+        /// <summary>
+        /// Verify RSA/ECDsa key pair of two certificates.
+        /// </summary>
+        public static bool VerifyKeyPair(
+            X509Certificate2 certWithPublicKey,
+            X509Certificate2 certWithPrivateKey,
+            bool throwOnError = false)
+        {
+            return X509PfxUtils.VerifyKeyPair(certWithPublicKey, certWithPrivateKey, throwOnError);
+        }
+
+        /// <summary>
+        /// Verify ECDsa key pair of two certificates.
+        /// </summary>
+        public static bool VerifyECDsaKeyPair(
+            X509Certificate2 certWithPublicKey,
+            X509Certificate2 certWithPrivateKey,
+            bool throwOnError = false)
+        {
+#if ECC_SUPPORT  
+            return X509PfxUtils.VerifyECDsaKeyPair(certWithPublicKey, certWithPrivateKey, throwOnError);
+#else
+            throw new NotSupportedException();
+#endif
+        }
+
+        /// <summary>
         /// Verify RSA key pair of two certificates.
         /// </summary>
         public static bool VerifyRSAKeyPair(
@@ -490,17 +563,42 @@ namespace Opc.Ua
         }
 
         /// <summary>
+        /// Creates a copy of a certificate with a private key.
+        /// If the platform defaults to an ephemeral key set,
+        /// the private key requires an extra copy.
+        /// </summary>
+        /// <returns>The certificate</returns>
+        public static X509Certificate2 CreateCopyWithPrivateKey(X509Certificate2 certificate, bool persisted)
+        {
+            // a copy is only necessary on windows
+            if (certificate.HasPrivateKey
+#if !NETFRAMEWORK
+                && RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+#endif
+                )
+            {
+                // see https://github.com/dotnet/runtime/issues/29144
+                string passcode = GeneratePasscode();
+                X509KeyStorageFlags storageFlags = persisted ? X509KeyStorageFlags.PersistKeySet : X509KeyStorageFlags.Exportable;
+                return X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx, passcode), passcode, storageFlags);
+            }
+            return certificate;
+        }
+
+        /// <summary>
         /// Creates a certificate from a PKCS #12 store with a private key.
         /// </summary>
         /// <param name="rawData">The raw PKCS #12 store data.</param>
         /// <param name="password">The password to use to access the store.</param>
+        /// <param name="noEphemeralKeySet">Set to true if the key should not use the ephemeral key set.</param>
         /// <returns>The certificate with a private key.</returns>
         public static X509Certificate2 CreateCertificateFromPKCS12(
             byte[] rawData,
-            string password
+            string password,
+            bool noEphemeralKeySet = false
             )
         {
-            return X509PfxUtils.CreateCertificateFromPKCS12(rawData, password);
+            return X509PfxUtils.CreateCertificateFromPKCS12(rawData, password, noEphemeralKeySet);
         }
 
         /// <summary>
@@ -546,7 +644,8 @@ namespace Opc.Ua
             // add cert to the store.
             if (!String.IsNullOrEmpty(storePath) && !String.IsNullOrEmpty(storeType))
             {
-                using (ICertificateStore store = Opc.Ua.CertificateStoreIdentifier.CreateStore(storeType))
+                var certificateStoreIdentifier = new CertificateStoreIdentifier(storePath, storeType, false);
+                using (ICertificateStore store = certificateStoreIdentifier.OpenStore())
                 {
                     if (store == null)
                     {
@@ -560,6 +659,118 @@ namespace Opc.Ua
             }
             return certificate;
         }
+
+        /// <summary>
+        /// Extension to add a certificate to a <see cref="ICertificateStore"/>.
+        /// </summary>
+        /// <remarks>
+        /// Saves also the private key, if available.
+        /// If written to a Pfx file, the password is used for protection.
+        /// </remarks>
+        /// <param name="certificate">The certificate to store.</param>
+        /// <param name="storeIdentifier">The certificate store.</param>
+        /// <param name="password">The password to use to protect the certificate.</param>
+        /// <returns></returns>
+        public static X509Certificate2 AddToStore(
+            this X509Certificate2 certificate,
+            CertificateStoreIdentifier storeIdentifier,
+            string password = null)
+        {
+            // add cert to the store.
+            if (storeIdentifier != null)
+            {
+                ICertificateStore store = storeIdentifier.OpenStore();
+                try
+                {
+                    if (store == null || store.NoPrivateKeys == true)
+                    {
+                        throw new ArgumentException("Invalid store type");
+                    }
+
+                    store.Add(certificate, password).Wait();
+                }
+                finally
+                {
+                    store?.Close();
+                }
+            }
+            return certificate;
+        }
+
+        /// <summary>e
+        /// Extension to add a certificate to a <see cref="ICertificateStore"/>.
+        /// </summary>
+        /// <remarks>
+        /// Saves also the private key, if available.
+        /// If written to a Pfx file, the password is used for protection.
+        /// </remarks>
+        /// <param name="certificate">The certificate to store.</param>
+        /// <param name="storeType">Type of certificate store (Directory) <see cref="CertificateStoreType"/>.</param>
+        /// <param name="storePath">The store path (syntax depends on storeType).</param>
+        /// <param name="password">The password to use to protect the certificate.</param>
+        /// <param name="ct">The cancellation token.</param>
+        public static async Task<X509Certificate2> AddToStoreAsync(
+            this X509Certificate2 certificate,
+            string storeType,
+            string storePath,
+            string password = null,
+            CancellationToken ct = default)
+        {
+            // add cert to the store.
+            if (!String.IsNullOrEmpty(storePath) && !String.IsNullOrEmpty(storeType))
+            {
+                var certificateStoreIdentifier = new CertificateStoreIdentifier(storePath, storeType, false);
+                using (ICertificateStore store = certificateStoreIdentifier.OpenStore())
+                {
+                    if (store == null)
+                    {
+                        throw new ArgumentException("Invalid store type");
+                    }
+
+                    await store.Add(certificate, password).ConfigureAwait(false);
+                    store.Close();
+                }
+            }
+            return certificate;
+        }
+
+        /// <summary>e
+        /// Extension to add a certificate to a <see cref="ICertificateStore"/>.
+        /// </summary>
+        /// <remarks>
+        /// Saves also the private key, if available.
+        /// If written to a Pfx file, the password is used for protection.
+        /// </remarks>
+        /// <param name="certificate">The certificate to store.</param>
+        /// <param name="storeIdentifier">Type of certificate store (Directory) <see cref="CertificateStoreType"/>.</param>
+        /// <param name="password">The password to use to protect the certificate.</param>
+        /// <param name="ct">The cancellation token.</param>
+        public static async Task<X509Certificate2> AddToStoreAsync(
+            this X509Certificate2 certificate,
+            CertificateStoreIdentifier storeIdentifier,
+            string password = null,
+            CancellationToken ct = default)
+        {
+            // add cert to the store.
+            if (storeIdentifier != null)
+            {
+                ICertificateStore store = storeIdentifier.OpenStore();
+                try
+                {
+                    if (store == null)
+                    {
+                        throw new ArgumentException("Invalid store type");
+                    }
+                    await store.Add(certificate, password).ConfigureAwait(false);
+                }
+                finally
+                {
+                    store?.Close();
+                }
+            }
+            return certificate;
+        }
+
 
         /// <summary>
         /// Get the hash algorithm from the hash size in bits.
@@ -591,7 +802,7 @@ namespace Opc.Ua
         internal static string GeneratePasscode()
         {
             const int kLength = 18;
-            byte[] tokenBuffer = Utils.Nonce.CreateNonce(kLength);
+            byte[] tokenBuffer = Nonce.CreateRandomNonceData(kLength);
             return Convert.ToBase64String(tokenBuffer);
         }
 

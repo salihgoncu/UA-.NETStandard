@@ -34,6 +34,8 @@ using System.Text;
 using System.Xml;
 using NUnit.Framework;
 using Opc.Ua.Tests;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+
 
 namespace Opc.Ua.Core.Tests.Stack.Client
 {
@@ -91,6 +93,22 @@ namespace Opc.Ua.Core.Tests.Stack.Client
             };
 
             Assert.AreEqual(uri.OriginalString, uriBuilder.Uri.OriginalString);
+        }
+
+        [Test]
+        public void ValidateAppConfigWithoutAppCert()
+        {
+            var appConfig = new ApplicationConfiguration() {
+                ApplicationName = "Test",
+                ClientConfiguration = new ClientConfiguration() { },
+                SecurityConfiguration = new SecurityConfiguration() {
+                    ApplicationCertificate = new CertificateIdentifier(),
+                    TrustedPeerCertificates = new CertificateTrustList { StorePath = "Test" },
+                    TrustedIssuerCertificates = new CertificateTrustList { StorePath = "Test" },
+
+                }
+            };
+            Assert.DoesNotThrow(() => appConfig.Validate(ApplicationType.Client).GetAwaiter().GetResult());
         }
         #endregion
     }

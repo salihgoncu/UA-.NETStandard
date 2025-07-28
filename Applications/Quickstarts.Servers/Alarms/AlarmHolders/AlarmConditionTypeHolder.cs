@@ -28,7 +28,7 @@
  * ======================================================================*/
 
 using System;
-
+using System.Globalization;
 using Opc.Ua;
 
 #pragma warning disable CS1591
@@ -200,9 +200,9 @@ namespace Alarms
             return retainState;
         }
 
-        protected override void SetActive(BaseEventState baseEvent, bool activeState)
+        protected override void SetActive(BaseEventState state, bool activeState)
         {
-            AlarmConditionState alarm = GetAlarm(baseEvent);
+            AlarmConditionState alarm = GetAlarm(state);
             alarm.SetActiveState(SystemContext, activeState);
         }
 
@@ -272,7 +272,7 @@ namespace Alarms
                 }
                 else
                 {
-                    dueTo = " due to TimedShelve of " + shelvingTime.ToString();
+                    dueTo = " due to TimedShelve of " + shelvingTime.ToString(CultureInfo.InvariantCulture);
                 }
             }
             else

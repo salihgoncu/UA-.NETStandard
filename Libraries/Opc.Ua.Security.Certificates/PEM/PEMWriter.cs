@@ -28,6 +28,7 @@
  * ======================================================================*/
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -125,7 +126,7 @@ namespace Opc.Ua.Security.Certificates
                 if (rsaPrivateKey != null)
                 {
                     // write private key as PKCS#8
-                    exportedPkcs8PrivateKey = String.IsNullOrEmpty(password) ?
+                    exportedPkcs8PrivateKey = string.IsNullOrEmpty(password) ?
                         rsaPrivateKey.ExportPkcs8PrivateKey() :
                         rsaPrivateKey.ExportEncryptedPkcs8PrivateKey(password.ToCharArray(),
                             new PbeParameters(PbeEncryptionAlgorithm.TripleDes3KeyPkcs12, HashAlgorithmName.SHA1, 2000));
@@ -137,10 +138,10 @@ namespace Opc.Ua.Security.Certificates
                         if (ecdsaPrivateKey != null)
                         {
                             // write private key as PKCS#8
-                            exportedPkcs8PrivateKey = String.IsNullOrEmpty(password) ?
-                            ecdsaPrivateKey.ExportPkcs8PrivateKey() :
-                            ecdsaPrivateKey.ExportEncryptedPkcs8PrivateKey(password.ToCharArray(),
-                                new PbeParameters(PbeEncryptionAlgorithm.TripleDes3KeyPkcs12, HashAlgorithmName.SHA1, 2000));
+                            exportedPkcs8PrivateKey = string.IsNullOrEmpty(password) ?
+                                ecdsaPrivateKey.ExportPkcs8PrivateKey() :
+                                ecdsaPrivateKey.ExportEncryptedPkcs8PrivateKey(password.ToCharArray(),
+                                    new PbeParameters(PbeEncryptionAlgorithm.TripleDes3KeyPkcs12, HashAlgorithmName.SHA1, 2000));
                         }
                     }
                 }
@@ -149,6 +150,65 @@ namespace Opc.Ua.Security.Certificates
             return EncodeAsPEM(exportedPkcs8PrivateKey,
                 String.IsNullOrEmpty(password) ? "PRIVATE KEY" : "ENCRYPTED PRIVATE KEY");
         }
+
+        /// <summary>
+        /// Returns a byte array containing the private key in PEM format.
+        /// </summary>
+        public static bool TryRemovePublicKeyFromPEM(
+            string thumbprint,
+            ReadOnlySpan<byte> pemDataBlob,
+            out byte[] modifiedPemDataBlob
+            )
+        {
+            modifiedPemDataBlob = null;
+            string label = "CERTIFICATE";
+            string beginlabel = $"-----BEGIN {label}-----";
+            string endlabel = $"-----END {label}-----";
+            try
+            {
+                string pemText = Encoding.UTF8.GetString(pemDataBlob);
+                int searchPosition = 0;
+                int count = 0;
+                int endIndex = 0;
+                while (endIndex > -1 && count < 99)
+                {
+                    count++;
+                    int beginIndex = pemText.IndexOf(beginlabel, searchPosition, StringComparison.Ordinal);
+                    if (beginIndex < 0)
+                    {
+                        return false;
+                    }
+                    endIndex = pemText.IndexOf(endlabel, searchPosition, StringComparison.Ordinal);
+                    beginIndex += beginlabel.Length;
+                    if (endIndex < 0 || endIndex <= beginIndex)
+                    {
+                        return false;
+                    }
+                    var pemCertificateContent = pemText.Substring(beginIndex, endIndex - beginIndex);
+                    Span<byte> pemCertificateDecoded = new Span<byte>(new byte[pemCertificateContent.Length]);
+                    if (Convert.TryFromBase64Chars(pemCertificateContent, pemCertificateDecoded, out var bytesWritten))
+                    {
+#if NET6_0_OR_GREATER
+                        var certificate = X509CertificateLoader.LoadCertificate(pemCertificateDecoded);
+#else
+                        var certificate = X509CertificateLoader.LoadCertificate(pemCertificateDecoded.ToArray());
+#endif
+                        if (thumbprint.Equals(certificate.Thumbprint, StringComparison.OrdinalIgnoreCase))
+                        {
+                            modifiedPemDataBlob = Encoding.ASCII.GetBytes(pemText.Replace(pemText.Substring(beginIndex -= beginlabel.Length, endIndex + endlabel.Length), string.Empty));
+                            return true;
+                        }
+                    }
+
+                    searchPosition = endIndex + endlabel.Length;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            return false;
+        }
 #endif
         #endregion
 
@@ -156,23 +216,35 @@ namespace Opc.Ua.Security.Certificates
         private static byte[] EncodeAsPEM(byte[] content, string contentType)
         {
             if (content == null) throw new ArgumentNullException(nameof(content));
-            if (String.IsNullOrEmpty(contentType)) throw new ArgumentNullException(nameof(contentType));
+            if (string.IsNullOrEmpty(contentType)) throw new ArgumentNullException(nameof(contentType));
 
             const int LineLength = 64;
             string base64 = Convert.ToBase64String(content);
-            using (TextWriter textWriter = new StringWriter())
+            using (var textWriter = new StringWriter())
             {
                 textWriter.WriteLine("-----BEGIN {0}-----", contentType);
-                while (base64.Length > LineLength)
+
+                int offset = 0;
+                while (base64.Length - offset > LineLength)
                 {
 #if NETSTANDARD2_1 || NET5_0_OR_GREATER
-                    textWriter.WriteLine(base64.AsSpan(0, LineLength));
+                    textWriter.WriteLine(base64.AsSpan(offset, LineLength));
 #else
-                    textWriter.WriteLine(base64.Substring(0, LineLength));
+                    textWriter.WriteLine(base64.Substring(offset, LineLength));
 #endif
-                    base64 = base64.Substring(LineLength);
+                    offset += LineLength;
                 }
-                textWriter.WriteLine(base64);
+
+                var length = base64.Length - offset;
+                if (length > 0)
+                {
+#if NETSTANDARD2_1 || NET5_0_OR_GREATER
+                    textWriter.WriteLine(base64.AsSpan(offset, length));
+#else
+                    textWriter.WriteLine(base64.Substring(offset, length));
+#endif
+                }
+
                 textWriter.WriteLine("-----END {0}-----", contentType);
                 return Encoding.ASCII.GetBytes(textWriter.ToString());
             }

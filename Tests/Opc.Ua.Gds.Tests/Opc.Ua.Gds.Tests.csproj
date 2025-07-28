@@ -1,5 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFrameworks>$(TestsTargetFrameworks)</TargetFrameworks>
@@ -11,22 +10,33 @@
     <DefineConstants>$(DefineConstants);USE_FILE_CONFIG</DefineConstants>
   </PropertyGroup>
 
+  <Choose>
+    <When Condition="'$(TargetFramework)' == 'net462'">
+    </When>
+    <Otherwise>
+      <PropertyGroup Condition="'$(DisableECCTests)' != 'true'">
+        <DefineConstants>$(DefineConstants);ECC_SUPPORT</DefineConstants>
+      </PropertyGroup>
+    </Otherwise>
+  </Choose>
+
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.7.1" />
-    <PackageReference Include="NUnit" Version="3.13.3" />
-    <PackageReference Include="NUnit.Console" Version="3.16.3" />
-    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit.Console" />
+    <PackageReference Include="NUnit3TestAdapter">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="coverlet.collector" Version="6.0.0">
+    <PackageReference Include="coverlet.collector">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
   
   <ItemGroup>
-    <Compile Include="..\Common\Main.cs"/>
+    <Compile Include="..\Common\Main.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -41,6 +51,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Opc.Ua.GlobalDiscoveryTestServerX509Stores.Config.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Opc.Ua.GlobalDiscoveryTestClientX509Stores.Config.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="Opc.Ua.GlobalDiscoveryTestClient.Config.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -54,5 +70,4 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
-
 </Project>

@@ -11,8 +11,8 @@
 */
 
 using System;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
+using Opc.Ua.Security.Certificates;
 
 namespace Opc.Ua
 {
@@ -27,6 +27,11 @@ namespace Opc.Ua
     /// </summary>
     public interface ITransportListener : IDisposable
     {
+        /// <summary>
+        /// The Id of the transport listener.
+        /// </summary>
+        string ListenerId { get; }
+
         /// <summary>
         /// The protocol supported by the listener.
         /// </summary>
@@ -57,8 +62,7 @@ namespace Opc.Ua
         /// </summary>
         void CertificateUpdate(
             ICertificateValidator validator,
-            X509Certificate2 serverCertificate,
-            X509Certificate2Collection serverCertificateChain);
+            CertificateTypesProvider serverCertificateTypes);
 
         /// <summary>
         /// Raised when a new connection is waiting for a client.
@@ -75,6 +79,12 @@ namespace Opc.Ua
         /// </summary>
         void CreateReverseConnection(Uri url, int timeout);
 
+        /// <summary>
+        /// Updates the last active time of a global channel to defer
+        /// clean up based on channel timeout.
+        /// </summary>
+        /// <param name="globalChannelId">The global channel id</param>
+        void UpdateChannelLastActiveTime(string globalChannelId);
     }
 
     /// <summary>

@@ -27,6 +27,7 @@
  * http://opcfoundation.org/License/MIT/1.00/
  * ======================================================================*/
 
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Opc.Ua;
@@ -192,7 +193,7 @@ namespace Boiler
         }
 
         /// <summary>
-        /// Loads a node set from a file or resource and addes them to the set of predefined nodes.
+        /// Loads a node set from a file or resource and adds them to the set of predefined nodes.
         /// </summary>
         protected override NodeStateCollection LoadPredefinedNodes(ISystemContext context)
         {

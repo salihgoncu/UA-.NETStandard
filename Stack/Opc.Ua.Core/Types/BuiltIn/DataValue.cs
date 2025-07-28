@@ -214,9 +214,8 @@ namespace Opc.Ua
                 return true;
             }
 
-            DataValue value = obj as DataValue;
 
-            if (value != null)
+            if (obj is DataValue value)
             {
                 if (this.m_statusCode != value.m_statusCode)
                 {
@@ -245,7 +244,7 @@ namespace Opc.Ua
 
                 return Utils.IsEqual(this.m_value.Value, value.m_value.Value);
             }
-            
+
             return false;
         }
 
@@ -338,7 +337,7 @@ namespace Opc.Ua
         {
             if (format == null)
             {
-                return String.Format(formatProvider, "{0}", m_value);
+                return string.Format(formatProvider, "{0}", m_value);
             }
 
             throw new FormatException(Utils.Format("Invalid format string: '{0}'.", format));
@@ -575,9 +574,8 @@ namespace Opc.Ua
                     return null;
                 }
 
-                ExtensionObject extension = value as ExtensionObject;
 
-                if (extension != null)
+                if (value is ExtensionObject extension)
                 {
                     value = extension.Body;
                 }
@@ -589,6 +587,50 @@ namespace Opc.Ua
             }
 
             return value;
+        }
+
+        /// <summary>
+        /// Gets the value from the data value.
+        /// Returns default value for bad status.
+        /// </summary>
+        /// <typeparam name="T">The type of object.</typeparam>
+        /// <returns>The value.</returns>
+        /// <remarks>
+        /// Checks the StatusCode and returns default value for bad status.
+        /// Extracts the body from an ExtensionObject value if it has the correct type.
+        /// Throws exception only if there is a type mismatch; 
+        /// </remarks>
+        public T GetValueOrDefault<T>()
+        {
+            // return default for a DataValue with bad status code.
+            if (StatusCode.IsBad(this.StatusCode))
+            {
+                return default;
+            }
+
+            object value = this.Value;
+            if (value != null)
+            {
+                if (value is ExtensionObject extension)
+                {
+                    value = extension.Body;
+                }
+
+                if (!typeof(T).IsInstanceOfType(value))
+                {
+                    throw ServiceResultException.Create(StatusCodes.BadTypeMismatch, "DataValue is not of type {0}.", typeof(T).Name);
+                }
+
+                return (T)value;
+            }
+
+            // a null value for a value type should throw
+            if (typeof(T).IsValueType)
+            {
+                throw ServiceResultException.Create(StatusCodes.BadTypeMismatch, "DataValue is null and not of value type {0}.", typeof(T).Name);
+            }
+
+            return default;
         }
 
         /// <summary>
@@ -614,9 +656,8 @@ namespace Opc.Ua
                 return (T)this.Value;
             }
 
-            ExtensionObject extension = this.Value as ExtensionObject;
 
-            if (extension != null)
+            if (this.Value is ExtensionObject extension)
             {
                 if (typeof(T).IsInstanceOfType(extension.Body))
                 {

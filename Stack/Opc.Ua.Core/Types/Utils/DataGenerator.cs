@@ -35,7 +35,7 @@ namespace Opc.Ua.Test
         void NextBytes(byte[] bytes, int offset, int count);
 
         /// <summary>
-        /// Returns a random non-negative integer which does not exeed the specified maximum.
+        /// Returns a random non-negative integer which does not exceed the specified maximum.
         /// </summary>
         /// <param name="max">The maximum value to return.</param>
         /// <returns>A random value greater than 0 but less than or equal to max.</returns>
@@ -254,7 +254,7 @@ namespace Opc.Ua.Test
         }
 
         /// <summary>
-        /// Returns true of a boundary value should be used.
+        /// Returns true if a boundary value should be used.
         /// </summary>
         private bool UseBoundaryValue()
         {
@@ -550,7 +550,7 @@ namespace Opc.Ua.Test
 
             for (int ii = 0; ii < value.Length; ii++)
             {
-                value[ii] = default(T);
+                value[ii] = default;
             }
 
             return value;
@@ -903,7 +903,7 @@ namespace Opc.Ua.Test
         {
             NodeId nodeId = GetRandomNodeId();
             ushort serverIndex = m_serverUris.Count == 0 ? (ushort)0 : (ushort)m_random.NextInt32(m_serverUris.Count - 1);
-            return new ExpandedNodeId(nodeId, m_namespaceUris.GetString(nodeId.NamespaceIndex), serverIndex);
+            return new ExpandedNodeId(nodeId, nodeId.NamespaceIndex > 0 ? m_namespaceUris.GetString(nodeId.NamespaceIndex) : null, serverIndex);
         }
         #endregion
 
@@ -928,12 +928,25 @@ namespace Opc.Ua.Test
         #endregion
 
         #region StatusCode
+        private readonly List<KeyValuePair<uint, string>> KnownsStatusCodes = new List<KeyValuePair<uint, string>>();
+
         /// <summary cref="GetRandom(Type)" />
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1024:UsePropertiesWhereAppropriate")]
         public StatusCode GetRandomStatusCode()
         {
-            int offset = GetRandomRange((int)(StatusCodes.BadUnexpectedError >> 16), (int)(StatusCodes.BadMaxConnectionsReached >> 16));
-            return (uint)(StatusCodes.BadUnexpectedError + (offset << 16));
+            if (KnownsStatusCodes.Count == 0)
+            {
+                foreach (var field in typeof(StatusCodes).GetFields(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (field.Name.StartsWith("Good") || field.Name.StartsWith("Uncertain") || field.Name.StartsWith("Bad"))
+                    {
+                        KnownsStatusCodes.Add(new KeyValuePair<uint, string>((uint)field.GetValue(null), field.Name));
+                    }
+                }
+            }
+
+            var index = GetRandomRange(0, KnownsStatusCodes.Count-1);
+            return KnownsStatusCodes[index].Key;
         }
         #endregion
 

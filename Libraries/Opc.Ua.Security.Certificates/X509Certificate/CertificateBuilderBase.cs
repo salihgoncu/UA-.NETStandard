@@ -239,8 +239,15 @@ namespace Opc.Ua.Security.Certificates
         public virtual ICertificateBuilderCreateForECDsaAny SetECCurve(ECCurve curve)
         {
             m_curve = curve;
+
+            // HashAlgorithmName.SHA256 is the default value
+            if (m_hashAlgorithmName == X509Defaults.HashAlgorithmName)
+            {
+                SetHashAlgorithmSize(curve);
+            }
             return this;
         }
+
 
         /// <inheritdoc/>
         public abstract ICertificateBuilderCreateForECDsaAny SetECDsaPublicKey(byte[] publicKey);
@@ -274,6 +281,30 @@ namespace Opc.Ua.Security.Certificates
             return this;
         }
         #endregion
+
+#if ECC_SUPPORT
+        #region Private methods
+        /// <summary>
+        /// Set the hash algorithm depending on the curve size
+        /// </summary>
+        /// <param name="curve"></param>
+        private void SetHashAlgorithmSize(ECCurve curve)
+        {
+            if (curve.Oid.FriendlyName.CompareTo(ECCurve.NamedCurves.nistP384.Oid.FriendlyName) == 0 ||
+                curve.Oid.FriendlyName.CompareTo(ECCurve.NamedCurves.brainpoolP384r1.Oid.FriendlyName) == 0 ||
+                // special case for linux where friendly name could be ECDSA_P384 instead of nistP384
+                (curve.Oid?.Value != null && curve.Oid.Value.CompareTo(ECCurve.NamedCurves.nistP384.Oid.Value) == 0))
+            {
+                SetHashAlgorithm(HashAlgorithmName.SHA384);
+            }
+            if (curve.Oid.FriendlyName.CompareTo(ECCurve.NamedCurves.nistP521.Oid.FriendlyName) == 0 ||
+               (curve.Oid.FriendlyName.CompareTo(ECCurve.NamedCurves.brainpoolP512r1.Oid.FriendlyName) == 0))
+            {
+                SetHashAlgorithm(HashAlgorithmName.SHA512);
+            }
+        }
+        #endregion
+#endif
 
         #region Protected Methods
         /// <summary>
@@ -320,44 +351,44 @@ namespace Opc.Ua.Security.Certificates
         /// <summary>
         /// If the certificate is a CA.
         /// </summary>
-        protected bool m_isCA;
+        private protected bool m_isCA;
         /// <summary>
         /// The path length constraint to sue for a CA.
         /// </summary>
-        protected int m_pathLengthConstraint;
+        private protected int m_pathLengthConstraint;
         /// <summary>
         /// The serial number length in octets.
         /// </summary>
-        protected int m_serialNumberLength;
+        private protected int m_serialNumberLength;
         /// <summary>
         /// If the serial number is preset by the user.
         /// </summary>
-        protected bool m_presetSerial;
+        private protected bool m_presetSerial;
         /// <summary>
         /// The serial number as a little endian byte array.
         /// </summary>
-        protected byte[] m_serialNumber;
+        private protected byte[] m_serialNumber;
         /// <summary>
         /// The collection of X509Extension to add to the certificate.
         /// </summary>
-        protected X509ExtensionCollection m_extensions;
+        private protected X509ExtensionCollection m_extensions;
         /// <summary>
         /// The RSA public to use when if a certificate is signed.
         /// </summary>
-        protected RSA m_rsaPublicKey;
+        private protected RSA m_rsaPublicKey;
         /// <summary>
         /// The size of a RSA key pair to create.
         /// </summary>
-        protected int m_keySize;
+        private protected int m_keySize;
 #if ECC_SUPPORT
         /// <summary>
         /// The ECDsa public to use when if a certificate is signed.
         /// </summary>
-        protected ECDsa m_ecdsaPublicKey;
+        private protected ECDsa m_ecdsaPublicKey;
         /// <summary>
         /// The ECCurve to use.
         /// </summary>
-        protected ECCurve? m_curve;
+        private protected ECCurve? m_curve;
 #endif
         #endregion
 

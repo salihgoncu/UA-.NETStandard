@@ -12,6 +12,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -98,19 +99,6 @@ namespace Opc.Ua.Bindings
         }
 
         /// <summary>
-        /// Creates a new nonce.
-        /// </summary>
-        protected byte[] CreateNonce()
-        {
-            uint length = GetNonceLength();
-            if (length > 0)
-            {
-                return Utils.Nonce.CreateNonce(length);
-            }
-            return null;
-        }
-
-        /// <summary>
         /// Returns the thumbprint as a uppercase string.
         /// </summary>
         protected static string GetThumbprintString(byte[] thumbprint)
@@ -124,7 +112,7 @@ namespace Opc.Ua.Bindings
 
             for (int ii = 0; ii < thumbprint.Length; ii++)
             {
-                builder.AppendFormat("{0:X2}", thumbprint[ii]);
+                builder.AppendFormat(CultureInfo.InvariantCulture, "{0:X2}", thumbprint[ii]);
             }
 
             return builder.ToString();
@@ -190,21 +178,104 @@ namespace Opc.Ua.Bindings
         #endregion
 
         #region Asymmetric Cryptography Functions
+        
         /// <summary>
-        /// Returns the length of the symmetric encryption key.
+        /// Validates the nonce.
         /// </summary>
-        protected uint GetNonceLength()
+        protected byte[] CreateNonce(X509Certificate2 certificate)
         {
-            return Utils.Nonce.GetNonceLength(SecurityPolicyUri);
+            switch (SecurityPolicyUri)
+            {
+                case SecurityPolicies.Basic128Rsa15:
+                case SecurityPolicies.Basic256:
+                case SecurityPolicies.Basic256Sha256:
+                case SecurityPolicies.Aes128_Sha256_RsaOaep:
+                case SecurityPolicies.Aes256_Sha256_RsaPss:
+                {
+                    uint length = Nonce.GetNonceLength(SecurityPolicyUri);
+
+                    if (length > 0)
+                    {
+                        return Nonce.CreateRandomNonceData(length);
+                    }
+
+                    break;
+                }
+#if ECC_SUPPORT
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
+                {
+                    m_localNonce = Nonce.CreateNonce(SecurityPolicyUri);
+                    return m_localNonce.Data;
+                }
+#endif
+                default:
+                case SecurityPolicies.None:
+                {
+                    return null;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
         /// Validates the nonce.
         /// </summary>
-        protected bool ValidateNonce(byte[] nonce)
+        protected bool ValidateNonce(X509Certificate2 certificate, byte[] nonce)
         {
-            return Utils.Nonce.ValidateNonce(nonce, SecurityMode, SecurityPolicyUri);
+            // no nonce needed for no security.
+            if (SecurityMode == MessageSecurityMode.None)
+            {
+                return true;
+            }
+
+            // check the length.
+            if (nonce == null || nonce.Length != Nonce.GetNonceLength(SecurityPolicyUri))
+            {
+                return false;
+            }
+
+            switch (SecurityPolicyUri)
+            {
+                case SecurityPolicies.Basic128Rsa15:
+                case SecurityPolicies.Basic256:
+                case SecurityPolicies.Basic256Sha256:
+                case SecurityPolicies.Aes128_Sha256_RsaOaep:
+                case SecurityPolicies.Aes256_Sha256_RsaPss:
+                {
+                    // try to catch programming errors by rejecting nonces with all zeros.
+                    for (int ii = 0; ii < nonce.Length; ii++)
+                    {
+                        if (nonce[ii] != 0)
+                        {
+                            return true;
+                        }
+                    }
+
+                    break;
+                }
+#if ECC_SUPPORT
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
+                {
+                    m_remoteNonce = Nonce.CreateNonce(SecurityPolicyUri, nonce);
+                    return true;
+                }
+#endif
+            }
+
+            return false;
         }
+
 
         /// <summary>
         /// Returns the plain text block size for key in the specified certificate.
@@ -216,25 +287,35 @@ namespace Opc.Ua.Bindings
                 case SecurityPolicies.Basic256:
                 case SecurityPolicies.Basic256Sha256:
                 case SecurityPolicies.Aes128_Sha256_RsaOaep:
-                    {
-                        return RsaUtils.GetPlainTextBlockSize(receiverCertificate, RsaUtils.Padding.OaepSHA1);
-                    }
+                {
+                    return RsaUtils.GetPlainTextBlockSize(receiverCertificate, RsaUtils.Padding.OaepSHA1);
+                }
 
                 case SecurityPolicies.Aes256_Sha256_RsaPss:
-                    {
-                        return RsaUtils.GetPlainTextBlockSize(receiverCertificate, RsaUtils.Padding.OaepSHA256);
-                    }
+                {
+                    return RsaUtils.GetPlainTextBlockSize(receiverCertificate, RsaUtils.Padding.OaepSHA256);
+                }
 
                 case SecurityPolicies.Basic128Rsa15:
-                    {
-                        return RsaUtils.GetPlainTextBlockSize(receiverCertificate, RsaUtils.Padding.Pkcs1);
-                    }
+                {
+                    return RsaUtils.GetPlainTextBlockSize(receiverCertificate, RsaUtils.Padding.Pkcs1);
+                }
+
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
+                {
+                    return 1;
+                }
 
                 default:
                 case SecurityPolicies.None:
-                    {
-                        return 1;
-                    }
+                {
+                    return 1;
+                }
             }
         }
 
@@ -248,25 +329,35 @@ namespace Opc.Ua.Bindings
                 case SecurityPolicies.Basic256:
                 case SecurityPolicies.Basic256Sha256:
                 case SecurityPolicies.Aes128_Sha256_RsaOaep:
-                    {
-                        return RsaUtils.GetCipherTextBlockSize(receiverCertificate, RsaUtils.Padding.OaepSHA1);
-                    }
+                {
+                    return RsaUtils.GetCipherTextBlockSize(receiverCertificate, RsaUtils.Padding.OaepSHA1);
+                }
 
                 case SecurityPolicies.Aes256_Sha256_RsaPss:
-                    {
-                        return RsaUtils.GetCipherTextBlockSize(receiverCertificate, RsaUtils.Padding.OaepSHA256);
-                    }
+                {
+                    return RsaUtils.GetCipherTextBlockSize(receiverCertificate, RsaUtils.Padding.OaepSHA256);
+                }
 
                 case SecurityPolicies.Basic128Rsa15:
-                    {
-                        return RsaUtils.GetCipherTextBlockSize(receiverCertificate, RsaUtils.Padding.Pkcs1);
-                    }
+                {
+                    return RsaUtils.GetCipherTextBlockSize(receiverCertificate, RsaUtils.Padding.Pkcs1);
+                }
+
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
+                {
+                    return 1;
+                }
 
                 default:
                 case SecurityPolicies.None:
-                    {
-                        return 1;
-                    }
+                {
+                    return 1;
+                }
             }
         }
 
@@ -284,7 +375,7 @@ namespace Opc.Ua.Bindings
 
             if (securityPolicyUri != null)
             {
-                headerSize += new UTF8Encoding().GetByteCount(securityPolicyUri);
+                headerSize += Encoding.UTF8.GetByteCount(securityPolicyUri);
             }
 
             headerSize += TcpMessageLimits.StringLengthSize;
@@ -323,7 +414,7 @@ namespace Opc.Ua.Bindings
 
             if (securityPolicyUri != null)
             {
-                headerSize += new UTF8Encoding().GetByteCount(securityPolicyUri);
+                headerSize += Encoding.UTF8.GetByteCount(securityPolicyUri);
             }
 
             headerSize += TcpMessageLimits.StringLengthSize;
@@ -359,15 +450,25 @@ namespace Opc.Ua.Bindings
                 case SecurityPolicies.Basic256Sha256:
                 case SecurityPolicies.Aes128_Sha256_RsaOaep:
                 case SecurityPolicies.Aes256_Sha256_RsaPss:
-                    {
-                        return RsaUtils.GetSignatureLength(senderCertificate);
-                    }
-
+                {
+                    return RsaUtils.GetSignatureLength(senderCertificate);
+                }
+#if ECC_SUPPORT
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
+                {
+                    return EccUtils.GetSignatureLength(senderCertificate);
+                }
+#endif
                 default:
                 case SecurityPolicies.None:
-                    {
-                        return 0;
-                    }
+                {
+                    return 0;
+                }
             }
         }
 
@@ -473,7 +574,7 @@ namespace Opc.Ua.Bindings
 
             if (securityPolicyUri != null)
             {
-                occupiedSize += new UTF8Encoding().GetByteCount(securityPolicyUri);   //security policy uri size
+                occupiedSize += Encoding.UTF8.GetByteCount(securityPolicyUri);   //security policy uri size
             }
 
             occupiedSize += TcpMessageLimits.StringLengthSize; //SenderCertificateLength
@@ -596,43 +697,46 @@ namespace Opc.Ua.Bindings
 
                     if (SecurityMode != MessageSecurityMode.None)
                     {
-                        if (X509Utils.GetRSAPublicKeySize(receiverCertificate) <= TcpMessageLimits.KeySizeExtraPadding)
+                        if (receiverCertificate.GetRSAPublicKey() != null)
                         {
-                            // need to reserve one byte for the padding.
-                            plainTextSize++;
-
-                            if (plainTextSize % plainTextBlockSize != 0)
+                            if (X509Utils.GetRSAPublicKeySize(receiverCertificate) <= TcpMessageLimits.KeySizeExtraPadding)
                             {
-                                padding = plainTextBlockSize - (plainTextSize % plainTextBlockSize);
-                            }
+                                // need to reserve one byte for the padding.
+                                plainTextSize++;
 
-                            encoder.WriteByte(null, (byte)padding);
-                            for (int ii = 0; ii < padding; ii++)
-                            {
+                                if (plainTextSize % plainTextBlockSize != 0)
+                                {
+                                    padding = plainTextBlockSize - (plainTextSize % plainTextBlockSize);
+                                }
+
                                 encoder.WriteByte(null, (byte)padding);
+                                for (int ii = 0; ii < padding; ii++)
+                                {
+                                    encoder.WriteByte(null, (byte)padding);
+                                }
                             }
-                        }
-                        else
-                        {
-                            // need to reserve one byte for the padding.
-                            plainTextSize++;
-                            // need to reserve one byte for the extrapadding.
-                            plainTextSize++;
-
-                            if (plainTextSize % plainTextBlockSize != 0)
+                            else
                             {
-                                padding = plainTextBlockSize - (plainTextSize % plainTextBlockSize);
-                            }
+                                // need to reserve one byte for the padding.
+                                plainTextSize++;
+                                // need to reserve one byte for the extrapadding.
+                                plainTextSize++;
 
-                            byte paddingSize = (byte)(padding & 0xff);
-                            byte extraPaddingByte = (byte)((padding >> 8) & 0xff);
+                                if (plainTextSize % plainTextBlockSize != 0)
+                                {
+                                    padding = plainTextBlockSize - (plainTextSize % plainTextBlockSize);
+                                }
 
-                            encoder.WriteByte(null, paddingSize);
-                            for (int ii = 0; ii < padding; ii++)
-                            {
-                                encoder.WriteByte(null, (byte)paddingSize);
+                                byte paddingSize = (byte)(padding & 0xff);
+                                byte extraPaddingByte = (byte)((padding >> 8) & 0xff);
+
+                                encoder.WriteByte(null, paddingSize);
+                                for (int ii = 0; ii < padding; ii++)
+                                {
+                                    encoder.WriteByte(null, (byte)paddingSize);
+                                }
+                                encoder.WriteByte(null, extraPaddingByte);
                             }
-                            encoder.WriteByte(null, extraPaddingByte);
                         }
 
                         // update the plaintext size with the padding size.
@@ -693,7 +797,7 @@ namespace Opc.Ua.Bindings
             }
             catch (Exception ex)
             {
-                throw new Exception("Could not write async message", ex);
+                throw new ServiceResultException("Could not write async message", ex);
             }
             finally
             {
@@ -714,7 +818,7 @@ namespace Opc.Ua.Bindings
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1804:RemoveUnusedLocals", MessageId = "messageType"), System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1804:RemoveUnusedLocals", MessageId = "messageSize")]
         protected void ReadAsymmetricMessageHeader(
             BinaryDecoder decoder,
-            X509Certificate2 receiverCertificate,
+            ref X509Certificate2 receiverCertificate,
             out uint secureChannelId,
             out X509Certificate2Collection senderCertificateChain,
             out string securityPolicyUri)
@@ -773,9 +877,28 @@ namespace Opc.Ua.Bindings
             // verify receiver thumbprint.
             if (thumbprintData != null && thumbprintData.Length > 0)
             {
+                bool loadChain = false;
+                // TODO: client should use the proider too!
+                if (m_serverCertificateTypesProvider != null)
+                {
+                    receiverCertificate = m_serverCertificateTypesProvider.GetInstanceCertificate(securityPolicyUri);
+                    m_serverCertificate = receiverCertificate;
+                    loadChain = true;
+                }
+
+                if (receiverCertificate == null)
+                {
+                    throw ServiceResultException.Create(StatusCodes.BadCertificateInvalid, "The receiver has no matching certificate for the selected profile.");
+                }
+
                 if (receiverCertificate.Thumbprint.ToUpperInvariant() != GetThumbprintString(thumbprintData))
                 {
                     throw ServiceResultException.Create(StatusCodes.BadCertificateInvalid, "The receiver's certificate thumbprint is not valid.");
+                }
+
+                if (loadChain)
+                {
+                    m_serverCertificateChain = m_serverCertificateTypesProvider?.LoadCertificateChain(receiverCertificate);
                 }
             }
             else
@@ -806,6 +929,8 @@ namespace Opc.Ua.Bindings
                         {
                             m_securityMode = endpoint.SecurityMode;
                             m_selectedEndpoint = endpoint;
+                            m_serverCertificate = m_serverCertificateTypesProvider.GetInstanceCertificate(m_securityPolicyUri);
+                            m_serverCertificateChain = m_serverCertificateTypesProvider.LoadCertificateChain(m_serverCertificate);
                             supported = true;
                             break;
                         }
@@ -847,6 +972,8 @@ namespace Opc.Ua.Bindings
 
                 m_securityMode = endpoint.SecurityMode;
                 m_securityPolicyUri = endpoint.SecurityPolicyUri;
+                m_serverCertificate = m_serverCertificateTypesProvider.GetInstanceCertificate(m_securityPolicyUri);
+                m_serverCertificateChain = m_serverCertificateTypesProvider.LoadCertificateChainAsync(m_serverCertificate).GetAwaiter().GetResult();
                 m_selectedEndpoint = endpoint;
                 return true;
             }
@@ -860,98 +987,99 @@ namespace Opc.Ua.Bindings
         protected ArraySegment<byte> ReadAsymmetricMessage(
             ArraySegment<byte> buffer,
             X509Certificate2 receiverCertificate,
+
             out uint channelId,
             out X509Certificate2 senderCertificate,
             out uint requestId,
             out uint sequenceNumber)
         {
-            BinaryDecoder decoder = new BinaryDecoder(buffer.Array, buffer.Offset, buffer.Count, Quotas.MessageContext);
-
-            string securityPolicyUri = null;
-            X509Certificate2Collection senderCertificateChain;
+            int headerSize;
+            using (var decoder = new BinaryDecoder(buffer, Quotas.MessageContext))
+            {
+                string securityPolicyUri = null;
+                X509Certificate2Collection senderCertificateChain;
 
             // parse the security header.
             ReadAsymmetricMessageHeader(
                 decoder,
-                receiverCertificate,
+                ref receiverCertificate,
                 out channelId,
                 out senderCertificateChain,
                 out securityPolicyUri);
 
-            if (senderCertificateChain != null && senderCertificateChain.Count > 0)
-            {
-                senderCertificate = senderCertificateChain[0];
-            }
-            else
-            {
-                senderCertificate = null;
-            }
-
-            // validate the sender certificate.
-            if (senderCertificate != null && Quotas.CertificateValidator != null && securityPolicyUri != SecurityPolicies.None)
-            {
-                CertificateValidator certificateValidator = Quotas.CertificateValidator as CertificateValidator;
-
-                if (certificateValidator != null)
+                if (senderCertificateChain != null && senderCertificateChain.Count > 0)
                 {
-                    certificateValidator.Validate(senderCertificateChain);
+                    senderCertificate = senderCertificateChain[0];
                 }
                 else
                 {
-                    Quotas.CertificateValidator.Validate(senderCertificate);
+                    senderCertificate = null;
                 }
-            }
 
-            // check if this is the first open secure channel request.
-            if (!m_uninitialized)
-            {
-                if (securityPolicyUri != m_securityPolicyUri)
+                // validate the sender certificate.
+                if (senderCertificate != null && Quotas.CertificateValidator != null && securityPolicyUri != SecurityPolicies.None)
                 {
-                    throw ServiceResultException.Create(StatusCodes.BadSecurityPolicyRejected, "Cannot change the security policy after creating the channnel.");
-                }
-            }
-            else
-            {
-                // find a matching endpoint description.
-                if (m_endpoints != null)
-                {
-                    foreach (EndpointDescription endpoint in m_endpoints)
+                    if (Quotas.CertificateValidator is CertificateValidator certificateValidator)
                     {
-                        // There may be multiple endpoints with the same securityPolicyUri.
-                        // Just choose the first one that matches. This choice will be re-examined
-                        // When the OpenSecureChannel request body is processed.
-                        if (endpoint.SecurityPolicyUri == securityPolicyUri || (securityPolicyUri == SecurityPolicies.None && endpoint.SecurityMode == MessageSecurityMode.None))
-                        {
-                            m_securityMode = endpoint.SecurityMode;
-                            m_securityPolicyUri = securityPolicyUri;
-                            m_discoveryOnly = false;
-                            m_uninitialized = false;
-                            m_selectedEndpoint = endpoint;
+                        certificateValidator.Validate(senderCertificateChain);
+                    }
+                    else
+                    {
+                        Quotas.CertificateValidator.Validate(senderCertificate);
+                    }
+                }
 
-                            // recalculate the key sizes.
-                            CalculateSymmetricKeySizes();
-                            break;
+                // check if this is the first open secure channel request.
+                if (!m_uninitialized)
+                {
+                    if (securityPolicyUri != m_securityPolicyUri)
+                    {
+                        throw ServiceResultException.Create(StatusCodes.BadSecurityPolicyRejected, "Cannot change the security policy after creating the channnel.");
+                    }
+                }
+                else
+                {
+                    // find a matching endpoint description.
+                    if (m_endpoints != null)
+                    {
+                        foreach (EndpointDescription endpoint in m_endpoints)
+                        {
+                            // There may be multiple endpoints with the same securityPolicyUri.
+                            // Just choose the first one that matches. This choice will be re-examined
+                            // When the OpenSecureChannel request body is processed.
+                            if (endpoint.SecurityPolicyUri == securityPolicyUri || (securityPolicyUri == SecurityPolicies.None && endpoint.SecurityMode == MessageSecurityMode.None))
+                            {
+                                m_securityMode = endpoint.SecurityMode;
+                                m_securityPolicyUri = securityPolicyUri;
+                                m_discoveryOnly = false;
+                                m_uninitialized = false;
+                                m_selectedEndpoint = endpoint;
+
+                                // recalculate the key sizes.
+                                CalculateSymmetricKeySizes();
+                                break;
+                            }
                         }
                     }
-                }
 
-                // allow a discovery only channel with no security if policy not suppported
-                if (m_uninitialized)
-                {
-                    if (securityPolicyUri != SecurityPolicies.None)
+                    // allow a discovery only channel with no security if policy not suppported
+                    if (m_uninitialized)
                     {
-                        throw ServiceResultException.Create(StatusCodes.BadSecurityPolicyRejected, "The security policy is not supported.");
+                        if (securityPolicyUri != SecurityPolicies.None)
+                        {
+                            throw ServiceResultException.Create(StatusCodes.BadSecurityPolicyRejected, "The security policy is not supported.");
+                        }
+
+                        m_securityMode = MessageSecurityMode.None;
+                        m_securityPolicyUri = SecurityPolicies.None;
+                        m_discoveryOnly = true;
+                        m_uninitialized = false;
+                        m_selectedEndpoint = null;
                     }
-
-                    m_securityMode = MessageSecurityMode.None;
-                    m_securityPolicyUri = SecurityPolicies.None;
-                    m_discoveryOnly = true;
-                    m_uninitialized = false;
-                    m_selectedEndpoint = null;
                 }
-            }
 
-            int headerSize = decoder.Position;
+                headerSize = decoder.Position;
+            }
 
             // decrypt the body.
             ArraySegment<byte> plainText = Decrypt(
@@ -981,7 +1109,7 @@ namespace Opc.Ua.Bindings
             // verify padding.
             int paddingCount = 0;
 
-            if (SecurityMode != MessageSecurityMode.None)
+            if (SecurityMode != MessageSecurityMode.None && receiverCertificate.GetRSAPublicKey() != null)
             {
                 int paddingEnd = -1;
                 if (X509Utils.GetRSAPublicKeySize(receiverCertificate) > TcpMessageLimits.KeySizeExtraPadding)
@@ -1016,17 +1144,17 @@ namespace Opc.Ua.Bindings
             }
 
             // decode message.
-            decoder = new BinaryDecoder(
+            using (var decoder = new BinaryDecoder(
                 plainText.Array,
                 plainText.Offset + headerSize,
                 plainText.Count - headerSize,
-                Quotas.MessageContext);
-
-            sequenceNumber = decoder.ReadUInt32(null);
-            requestId = decoder.ReadUInt32(null);
-
-            headerSize += decoder.Position;
-            decoder.Close();
+                Quotas.MessageContext))
+            {
+                sequenceNumber = decoder.ReadUInt32(null);
+                requestId = decoder.ReadUInt32(null);
+                headerSize += decoder.Position;
+                decoder.Close();
+            }
 
             Utils.LogInfo("Security Policy: {0}", SecurityPolicyUri);
             Utils.LogCertificate("Sender Certificate:", senderCertificate);
@@ -1053,26 +1181,41 @@ namespace Opc.Ua.Bindings
             {
                 default:
                 case SecurityPolicies.None:
-                    {
-                        return null;
-                    }
+                {
+                    return null;
+                }
 
                 case SecurityPolicies.Basic256:
                 case SecurityPolicies.Basic128Rsa15:
-                    {
-                        return Rsa_Sign(dataToSign, senderCertificate, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
-                    }
+                {
+                    return Rsa_Sign(dataToSign, senderCertificate, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
+                }
 
                 case SecurityPolicies.Aes128_Sha256_RsaOaep:
                 case SecurityPolicies.Basic256Sha256:
-                    {
-                        return Rsa_Sign(dataToSign, senderCertificate, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-                    }
+                {
+                    return Rsa_Sign(dataToSign, senderCertificate, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                }
 
                 case SecurityPolicies.Aes256_Sha256_RsaPss:
-                    {
-                        return Rsa_Sign(dataToSign, senderCertificate, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
-                    }
+                {
+                    return Rsa_Sign(dataToSign, senderCertificate, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+                }
+#if ECC_SUPPORT
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
+                {
+                    return EccUtils.Sign(dataToSign, senderCertificate, HashAlgorithmName.SHA256);
+                }
+
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                {
+                    return EccUtils.Sign(dataToSign, senderCertificate, HashAlgorithmName.SHA384);
+                }
+#endif
             }
         }
 
@@ -1093,31 +1236,45 @@ namespace Opc.Ua.Bindings
             switch (SecurityPolicyUri)
             {
                 case SecurityPolicies.None:
-                    {
-                        return true;
-                    }
+                {
+                    return true;
+                }
 
                 case SecurityPolicies.Basic128Rsa15:
                 case SecurityPolicies.Basic256:
-                    {
-                        return Rsa_Verify(dataToVerify, signature, senderCertificate, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
-                    }
+                {
+                    return Rsa_Verify(dataToVerify, signature, senderCertificate, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
+                }
 
                 case SecurityPolicies.Aes128_Sha256_RsaOaep:
                 case SecurityPolicies.Basic256Sha256:
-                    {
-                        return Rsa_Verify(dataToVerify, signature, senderCertificate, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-                    }
+                {
+                    return Rsa_Verify(dataToVerify, signature, senderCertificate, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                }
 
                 case SecurityPolicies.Aes256_Sha256_RsaPss:
-                    {
-                        return Rsa_Verify(dataToVerify, signature, senderCertificate, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
-                    }
+                {
+                    return Rsa_Verify(dataToVerify, signature, senderCertificate, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+                }
+#if ECC_SUPPORT
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
+                {
+                    return EccUtils.Verify(dataToVerify, signature, senderCertificate, HashAlgorithmName.SHA256);
+                }
 
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                {
+                    return EccUtils.Verify(dataToVerify, signature, senderCertificate, HashAlgorithmName.SHA384);
+                }
+#endif
                 default:
-                    {
-                        return false;
-                    }
+                {
+                    return false;
+                }
             }
         }
 
@@ -1137,32 +1294,38 @@ namespace Opc.Ua.Bindings
             switch (SecurityPolicyUri)
             {
                 default:
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
                 case SecurityPolicies.None:
-                    {
-                        byte[] encryptedBuffer = BufferManager.TakeBuffer(SendBufferSize, "Encrypt");
+                {
+                    byte[] encryptedBuffer = BufferManager.TakeBuffer(SendBufferSize, "Encrypt");
 
-                        Array.Copy(headerToCopy.Array, headerToCopy.Offset, encryptedBuffer, 0, headerToCopy.Count);
-                        Array.Copy(dataToEncrypt.Array, dataToEncrypt.Offset, encryptedBuffer, headerToCopy.Count, dataToEncrypt.Count);
+                    Array.Copy(headerToCopy.Array, headerToCopy.Offset, encryptedBuffer, 0, headerToCopy.Count);
+                    Array.Copy(dataToEncrypt.Array, dataToEncrypt.Offset, encryptedBuffer, headerToCopy.Count, dataToEncrypt.Count);
 
-                        return new ArraySegment<byte>(encryptedBuffer, 0, dataToEncrypt.Count + headerToCopy.Count);
-                    }
+                    return new ArraySegment<byte>(encryptedBuffer, 0, dataToEncrypt.Count + headerToCopy.Count);
+                }
 
                 case SecurityPolicies.Basic256:
                 case SecurityPolicies.Aes128_Sha256_RsaOaep:
                 case SecurityPolicies.Basic256Sha256:
-                    {
-                        return Rsa_Encrypt(dataToEncrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.OaepSHA1);
-                    }
+                {
+                    return Rsa_Encrypt(dataToEncrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.OaepSHA1);
+                }
 
                 case SecurityPolicies.Aes256_Sha256_RsaPss:
-                    {
-                        return Rsa_Encrypt(dataToEncrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.OaepSHA256);
-                    }
+                {
+                    return Rsa_Encrypt(dataToEncrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.OaepSHA256);
+                }
 
                 case SecurityPolicies.Basic128Rsa15:
-                    {
-                        return Rsa_Encrypt(dataToEncrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.Pkcs1);
-                    }
+                {
+                    return Rsa_Encrypt(dataToEncrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.Pkcs1);
+                }
             }
         }
 
@@ -1181,32 +1344,38 @@ namespace Opc.Ua.Bindings
             switch (SecurityPolicyUri)
             {
                 default:
+                case SecurityPolicies.ECC_nistP256:
+                case SecurityPolicies.ECC_nistP384:
+                case SecurityPolicies.ECC_brainpoolP256r1:
+                case SecurityPolicies.ECC_brainpoolP384r1:
+                case SecurityPolicies.ECC_curve25519:
+                case SecurityPolicies.ECC_curve448:
                 case SecurityPolicies.None:
-                    {
-                        byte[] decryptedBuffer = BufferManager.TakeBuffer(SendBufferSize, "Decrypt");
+                {
+                    byte[] decryptedBuffer = BufferManager.TakeBuffer(SendBufferSize, "Decrypt");
 
-                        Array.Copy(headerToCopy.Array, headerToCopy.Offset, decryptedBuffer, 0, headerToCopy.Count);
-                        Array.Copy(dataToDecrypt.Array, dataToDecrypt.Offset, decryptedBuffer, headerToCopy.Count, dataToDecrypt.Count);
+                    Array.Copy(headerToCopy.Array, headerToCopy.Offset, decryptedBuffer, 0, headerToCopy.Count);
+                    Array.Copy(dataToDecrypt.Array, dataToDecrypt.Offset, decryptedBuffer, headerToCopy.Count, dataToDecrypt.Count);
 
-                        return new ArraySegment<byte>(decryptedBuffer, 0, dataToDecrypt.Count + headerToCopy.Count);
-                    }
+                    return new ArraySegment<byte>(decryptedBuffer, 0, dataToDecrypt.Count + headerToCopy.Count);
+                }
 
                 case SecurityPolicies.Basic256:
                 case SecurityPolicies.Aes128_Sha256_RsaOaep:
                 case SecurityPolicies.Basic256Sha256:
-                    {
-                        return Rsa_Decrypt(dataToDecrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.OaepSHA1);
-                    }
+                {
+                    return Rsa_Decrypt(dataToDecrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.OaepSHA1);
+                }
 
                 case SecurityPolicies.Aes256_Sha256_RsaPss:
-                    {
-                        return Rsa_Decrypt(dataToDecrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.OaepSHA256);
-                    }
+                {
+                    return Rsa_Decrypt(dataToDecrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.OaepSHA256);
+                }
 
                 case SecurityPolicies.Basic128Rsa15:
-                    {
-                        return Rsa_Decrypt(dataToDecrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.Pkcs1);
-                    }
+                {
+                    return Rsa_Decrypt(dataToDecrypt, headerToCopy, receiverCertificate, RsaUtils.Padding.Pkcs1);
+                }
             }
         }
         #endregion
@@ -1217,11 +1386,16 @@ namespace Opc.Ua.Bindings
         private string m_securityPolicyUri;
         private bool m_discoveryOnly;
         private EndpointDescription m_selectedEndpoint;
+        private CertificateTypesProvider m_serverCertificateTypesProvider;
         private X509Certificate2 m_serverCertificate;
         private X509Certificate2Collection m_serverCertificateChain;
         private X509Certificate2 m_clientCertificate;
         private X509Certificate2Collection m_clientCertificateChain;
         private bool m_uninitialized;
+#if ECC_SUPPORT
+        private Nonce m_localNonce;
+        private Nonce m_remoteNonce;
+#endif
         #endregion
     }
 }

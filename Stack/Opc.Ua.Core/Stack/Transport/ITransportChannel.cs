@@ -18,7 +18,18 @@ using Opc.Ua.Bindings;
 namespace Opc.Ua
 {
     /// <summary>
-    /// This is an interface to a channel which supports 
+    /// Callback when the token is activated
+    /// </summary>
+    /// <param name="channel"></param>
+    /// <param name="currentToken"></param>
+    /// <param name="previousToken"></param>
+    public delegate void ChannelTokenActivatedEventHandler(
+        ITransportChannel channel,
+        ChannelToken currentToken,
+        ChannelToken previousToken);
+
+    /// <summary>
+    /// This is an interface to a channel which supports
     /// </summary>
     public interface ITransportChannel : IDisposable
     {
@@ -46,6 +57,11 @@ namespace Opc.Ua
         /// Gets the the channel's current security token.
         /// </summary>
         ChannelToken CurrentToken { get; }
+
+        /// <summary>
+        /// Register for token change events
+        /// </summary>
+        event ChannelTokenActivatedEventHandler OnTokenActivated;
 
         /// <summary>
         /// Gets or sets the default timeout for requests send via the channel.
@@ -139,6 +155,12 @@ namespace Opc.Ua
         void Close();
 
         /// <summary>
+        /// Closes the secure channel (async).
+        /// </summary>
+        /// <exception cref="ServiceResultException">Thrown if any communication error occurs.</exception>
+        Task CloseAsync(CancellationToken ct);
+
+        /// <summary>
         /// Begins an asynchronous operation to close the secure channel.
         /// </summary>
         /// <param name="callback">The callback to call when the operation completes.</param>
@@ -191,6 +213,16 @@ namespace Opc.Ua
         /// <exception cref="ServiceResultException">Thrown if any communication error occurs.</exception>
         /// <seealso cref="SendRequest" />
         IServiceResponse EndSendRequest(IAsyncResult result);
+
+        /// <summary>
+        /// Completes an asynchronous operation to send a request over the secure channel.
+        /// Awaitable version
+        /// </summary>
+        /// <param name="result">The result returned from the BeginSendRequest call.</param>
+        /// <param name="ct">The cancellation token.</param>
+        /// <exception cref="ServiceResultException">Thrown if any communication error occurs.</exception>
+        /// <seealso cref="SendRequest" />
+        Task<IServiceResponse> EndSendRequestAsync(IAsyncResult result, CancellationToken ct);
     }
 
     /// <summary>

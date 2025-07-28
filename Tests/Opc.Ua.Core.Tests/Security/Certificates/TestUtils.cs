@@ -27,6 +27,11 @@
  * http://opcfoundation.org/License/MIT/1.00/
  * ======================================================================*/
 
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+
 namespace Opc.Ua.Core.Tests
 {
     /// <summary>
@@ -34,24 +39,37 @@ namespace Opc.Ua.Core.Tests
     /// </summary>
     public static class TestUtils
     {
+        public static string[] EnumerateTestAssets(string searchPattern)
+        {
+            var assetsPath = Utils.GetAbsoluteDirectoryPath ("Assets", true, true, false);
+            if (assetsPath != null)
+            {
+                return Directory.EnumerateFiles(assetsPath, searchPattern).ToArray();
+            }
+            return Array.Empty<string>();
+        }
+
         /// <summary>
         /// A common method to clean up the test trust list.
         /// </summary>
         /// <param name="store"></param>
         /// <param name="dispose"></param>
-        public static void CleanupTrustList(ICertificateStore store, bool dispose = true)
+        public static async Task CleanupTrustListAsync(ICertificateStore store, bool dispose = true)
         {
             if (store != null)
             {
-                var certs = store.Enumerate().GetAwaiter().GetResult();
+                var certs = await store.Enumerate().ConfigureAwait(false);
                 foreach (var cert in certs)
                 {
-                    store.Delete(cert.Thumbprint);
+                    await store.Delete(cert.Thumbprint).ConfigureAwait(false);
                 }
-                var crls = store.EnumerateCRLs().GetAwaiter().GetResult();
-                foreach (var crl in crls)
+                if (store.SupportsCRLs)
                 {
-                    store.DeleteCRL(crl);
+                    var crls = await store.EnumerateCRLs().ConfigureAwait(false);
+                    foreach (var crl in crls)
+                    {
+                        await store.DeleteCRL(crl).ConfigureAwait(false);
+                    }
                 }
                 if (dispose)
                 {

@@ -29,6 +29,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 
 #pragma warning disable 0618
@@ -74,6 +75,7 @@ namespace Opc.Ua.Server
                 server, 
                 this,
                 (uint)configuration.ServerConfiguration.MaxNotificationQueueSize,
+                (uint)configuration.ServerConfiguration.MaxDurableNotificationQueueSize,
                 configuration.ServerConfiguration.AvailableSamplingRates);
         }
         #endregion
@@ -406,7 +408,7 @@ namespace Opc.Ua.Server
         }
         
         /// <summary>
-        /// Returns true is the target meets the filter criteria.
+        /// Returns true if the target meets the filter criteria.
         /// </summary>
         private bool ApplyBrowseFilters(
             IReference      reference,
@@ -585,7 +587,7 @@ namespace Opc.Ua.Server
 
                 // Set AccessRestrictions and RolePermissions
                 Node node = (Node)target;
-                metadata.AccessRestrictions = (AccessRestrictionType)Enum.Parse(typeof(AccessRestrictionType), node.AccessRestrictions.ToString()); 
+                metadata.AccessRestrictions = (AccessRestrictionType)Enum.Parse(typeof(AccessRestrictionType), node.AccessRestrictions.ToString(CultureInfo.InvariantCulture)); 
                 metadata.RolePermissions = node.RolePermissions;
                 metadata.UserRolePermissions = node.UserRolePermissions;
 
@@ -1114,6 +1116,8 @@ namespace Opc.Ua.Server
             return ServiceResult.Good;
         }
 
+       
+
         /// <summary>
         /// Creates a set of monitored items.
         /// </summary>
@@ -1126,6 +1130,7 @@ namespace Opc.Ua.Server
             IList<ServiceResult>              errors,
             IList<MonitoringFilterResult>     filterErrors,
             IList<IMonitoredItem>             monitoredItems,
+            bool                              createDurable,
             ref long                          globalIdCounter)
         {
             if (context == null)         throw new ArgumentNullException(nameof(context));
@@ -1251,7 +1256,8 @@ namespace Opc.Ua.Server
                         node,
                         itemToCreate,
                         range,
-                        minimumSamplingInterval);
+                        minimumSamplingInterval,
+                        createDurable);
 
                     // final check for initial value
                     ServiceResult error = ReadInitialValue(context, node, monitoredItem);
@@ -1277,6 +1283,64 @@ namespace Opc.Ua.Server
                 }
             }
  
+            // update all groups with any new items.
+            m_samplingGroupManager.ApplyChanges();
+        }
+
+        /// <summary>
+        /// Restore a set of monitored items after a restart.
+        /// </summary>
+        public void RestoreMonitoredItems(
+            IList<IStoredMonitoredItem> itemsToRestore,
+            IList<IMonitoredItem> monitoredItems,
+            IUserIdentity savedOwnerIdentity)
+        {
+            if (itemsToRestore == null) throw new ArgumentNullException(nameof(itemsToRestore));
+            if (monitoredItems == null) throw new ArgumentNullException(nameof(monitoredItems));
+
+            if (m_server.IsRunning)
+            {
+                throw new InvalidOperationException("Subscription restore can only occur on startup");
+            }
+
+            lock (m_lock)
+            {
+                for (int ii = 0; ii < itemsToRestore.Count; ii++)
+                {
+                    IStoredMonitoredItem item = itemsToRestore[ii];
+
+                    // skip items that have already been processed.
+                    if (item.IsRestored)
+                    {
+                        continue;
+                    }
+
+                    // look up the node.
+                    ILocalNode node = this.GetLocalNode(item.NodeId) as ILocalNode;
+
+                    if (node == null)
+                    {
+                        continue;
+                    }
+
+                    // owned by this node manager.
+                    item.IsRestored = true;
+
+                    // create monitored item.
+                    MonitoredItem monitoredItem = m_samplingGroupManager.RestoreMonitoredItem(
+                        node,
+                        item,
+                        savedOwnerIdentity
+                        );
+
+                    // save monitored item.
+                    m_monitoredItems.Add(monitoredItem.Id, monitoredItem);
+
+                    // update monitored item list.
+                    monitoredItems[ii] = monitoredItem;
+                }
+            }
+
             // update all groups with any new items.
             m_samplingGroupManager.ApplyChanges();
         }
@@ -3258,7 +3322,7 @@ namespace Opc.Ua.Server
         #endregion
         
         #region Private Fields
-        private object m_lock = new object();
+        private readonly object m_lock = new object();
         private IServerInternal m_server;
         private NodeTable m_nodes;
         private long m_lastId;

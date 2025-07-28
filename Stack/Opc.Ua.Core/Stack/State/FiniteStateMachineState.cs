@@ -530,7 +530,7 @@ namespace Opc.Ua
 
                 // do the transition.
                 result = DoTransition(context, transitionId, causeId, inputArguments, outputArguments);
-                
+
                 if (ServiceResult.IsBad(result))
                 {
                     return result;
@@ -548,7 +548,7 @@ namespace Opc.Ua
                     UpdateAuditEvent(context, causeMethod, inputArguments, causeId, e, result);
                     ReportEvent(context, e);
 
-                    if(m_causeId != causeId)
+                    if (m_causeId != causeId)
                     {
                         ReportAuditProgramTransitionEvent(context, causeMethod, causeId, inputArguments, result);
                         m_causeId = causeId;
@@ -584,9 +584,9 @@ namespace Opc.Ua
             TranslationInfo info = new TranslationInfo(
                 "StateTransition",
                 "en-US",
-                "The {1} method called was on the {0} state machine.",
-                this.GetDisplayPath(3, '.'),
-                causeMethod.DisplayName);
+                "The {0} method called was on the {1} state machine.",
+                causeMethod.DisplayName,
+                this.GetDisplayPath(3, '.'));
 
             e.Initialize(
                 context,
@@ -645,7 +645,7 @@ namespace Opc.Ua
         /// <param name="context">The context.</param>
         /// <param name="causeId">The cause id.</param>
         /// <returns></returns>
-        public void CauseProcessingCompleted(ISystemContext context, uint causeId)
+        public virtual void CauseProcessingCompleted(ISystemContext context, uint causeId)
         {
             // get the transition.
             uint transitionId = GetTransitionForCause(context, causeId);
@@ -679,7 +679,7 @@ namespace Opc.Ua
         /// <summary>
         /// Causes the specified transition to occur.
         /// </summary>
-        public ServiceResult DoTransition(
+        public virtual ServiceResult DoTransition(
             ISystemContext context,
             uint transitionId,
             uint causeId,
@@ -729,7 +729,7 @@ namespace Opc.Ua
             // update state and transition variables.
             UpdateStateVariable(context, newState, CurrentState);
             UpdateTransitionVariable(context, transitionId, LastTransition);
-            
+
             // do any post-transition processing.
             InvokeCallback(
                 OnAfterTransition,
@@ -744,7 +744,7 @@ namespace Opc.Ua
             if (this.AreEventsMonitored && !m_suppressTransitionEvents)
             {
                 TransitionEventState e = CreateTransitionEvent(context, transitionId, causeId);
-                
+
                 if (e != null)
                 {
                     UpdateTransitionEvent(context, transitionId, causeId, e);

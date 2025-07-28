@@ -12,6 +12,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Xml;
@@ -137,6 +138,7 @@ namespace Opc.Ua.Export
                     BaseObjectState o = (BaseObjectState)node;
                     UAObject value = new UAObject();
                     value.EventNotifier = o.EventNotifier;
+                    value.DesignToolOnly = node.DesignToolOnly;
 
                     if (o.Parent != null)
                     {
@@ -157,6 +159,7 @@ namespace Opc.Ua.Export
                     value.AccessLevel = o.AccessLevelEx;
                     value.MinimumSamplingInterval = o.MinimumSamplingInterval;
                     value.Historizing = o.Historizing;
+                    value.DesignToolOnly = node.DesignToolOnly;
 
                     if (o.Parent != null)
                     {
@@ -185,6 +188,7 @@ namespace Opc.Ua.Export
                     MethodState o = (MethodState)node;
                     UAMethod value = new UAMethod();
                     value.Executable = o.Executable;
+                    value.DesignToolOnly = node.DesignToolOnly;
 
                     if (o.MethodDeclarationId != null && !o.MethodDeclarationId.IsNullNodeId && o.MethodDeclarationId != o.NodeId)
                     {
@@ -205,6 +209,7 @@ namespace Opc.Ua.Export
                     ViewState o = (ViewState)node;
                     UAView value = new UAView();
                     value.ContainsNoLoops = o.ContainsNoLoops;
+                    value.DesignToolOnly = node.DesignToolOnly;
                     exportedNode = value;
                     break;
                 }
@@ -299,6 +304,32 @@ namespace Opc.Ua.Export
             exportedNode.WriteMask = (uint)node.WriteMask;
             exportedNode.UserWriteMask = (uint)node.UserWriteMask;
             exportedNode.Extensions = node.Extensions;
+            exportedNode.RolePermissions = null;
+            exportedNode.AccessRestrictions = 0;
+            exportedNode.AccessRestrictionsSpecified = false;
+
+            if (node.RolePermissions != null)
+            {
+                var permissions = new List<RolePermission>();
+
+                foreach (var ii in node.RolePermissions)
+                {
+                    var permission = new RolePermission() {
+                        Permissions = ii.Permissions,
+                        Value = ExportAlias(ii.RoleId, context.NamespaceUris)
+                    };
+
+                    permissions.Add(permission);
+                }
+
+                exportedNode.RolePermissions = permissions.ToArray();
+            }
+
+            if (node.AccessRestrictions != null)
+            {
+                exportedNode.AccessRestrictions = (ushort)node.AccessRestrictions;
+                exportedNode.AccessRestrictionsSpecified = true;
+            }
 
             if (!String.IsNullOrEmpty(node.SymbolicName) && node.SymbolicName != node.BrowseName.Name)
             {
@@ -353,7 +384,7 @@ namespace Opc.Ua.Export
 
             this.Items = nodes;
 
-            // recusively process children.
+            // recursively process children.
             List<BaseInstanceState> children = new List<BaseInstanceState>();
             node.GetChildren(context, children);
 
@@ -466,6 +497,7 @@ namespace Opc.Ua.Export
                     UAObject o = (UAObject)node;
                     BaseObjectState value = new BaseObjectState(null);
                     value.EventNotifier = o.EventNotifier;
+                    value.DesignToolOnly = o.DesignToolOnly;
                     importedNode = value;
                     break;
                 }
@@ -510,13 +542,16 @@ namespace Opc.Ua.Export
                     value.UserAccessLevel = (byte)(o.AccessLevel & 0xFF);
                     value.MinimumSamplingInterval = o.MinimumSamplingInterval;
                     value.Historizing = o.Historizing;
+                    value.DesignToolOnly = o.DesignToolOnly;
 
                     if (o.Value != null)
                     {
-                        XmlDecoder decoder = CreateDecoder(context, o.Value);
-                        TypeInfo typeInfo = null;
-                        value.Value = decoder.ReadVariantContents(out typeInfo);
-                        decoder.Close();
+                        using (XmlDecoder decoder = CreateDecoder(context, o.Value))
+                        {
+                            TypeInfo typeInfo = null;
+                            value.Value = decoder.ReadVariantContents(out typeInfo);
+                            decoder.Close();
+                        }
                     }
 
                     importedNode = value;
@@ -530,6 +565,7 @@ namespace Opc.Ua.Export
                     value.Executable = o.Executable;
                     value.UserExecutable = o.Executable;
                     value.MethodDeclarationId = ImportNodeId(o.MethodDeclarationId, context.NamespaceUris, true);
+                    value.DesignToolOnly = o.DesignToolOnly;
                     importedNode = value;
                     break;
                 }
@@ -539,6 +575,7 @@ namespace Opc.Ua.Export
                     UAView o = (UAView)node;
                     ViewState value = new ViewState();
                     value.ContainsNoLoops = o.ContainsNoLoops;
+                    value.DesignToolOnly = o.DesignToolOnly;
                     importedNode = value;
                     break;
                 }
@@ -563,10 +600,12 @@ namespace Opc.Ua.Export
 
                     if (o.Value != null)
                     {
-                        XmlDecoder decoder = CreateDecoder(context, o.Value);
-                        TypeInfo typeInfo = null;
-                        value.Value = decoder.ReadVariantContents(out typeInfo);
-                        decoder.Close();
+                        using (XmlDecoder decoder = CreateDecoder(context, o.Value))
+                        {
+                            TypeInfo typeInfo = null;
+                            value.Value = decoder.ReadVariantContents(out typeInfo);
+                            decoder.Close();
+                        }
                     }
 
                     importedNode = value;
@@ -614,6 +653,28 @@ namespace Opc.Ua.Export
             importedNode.UserWriteMask = (AttributeWriteMask)node.UserWriteMask;
             importedNode.Extensions = node.Extensions;
 
+            if (node.RolePermissions != null)
+            {
+                var permissions = new RolePermissionTypeCollection();
+
+                foreach (var ii in node.RolePermissions)
+                {
+                    var permission = new RolePermissionType() {
+                        Permissions = ii.Permissions,
+                        RoleId = ImportNodeId(ii.Value, context.NamespaceUris, true)
+                    };
+
+                    permissions.Add(permission);
+                }
+
+                importedNode.RolePermissions = permissions;
+            }
+
+            if (node.AccessRestrictionsSpecified)
+            {
+                importedNode.AccessRestrictions = (AccessRestrictionType?)node.AccessRestrictions;
+            }
+
             if (!String.IsNullOrEmpty(node.SymbolicName))
             {
                 importedNode.SymbolicName = node.SymbolicName;
@@ -621,16 +682,13 @@ namespace Opc.Ua.Export
 
             if (node.References != null)
             {
-                BaseInstanceState instance = importedNode as BaseInstanceState;
-                BaseTypeState type = importedNode as BaseTypeState;
-
                 for (int ii = 0; ii < node.References.Length; ii++)
                 {
                     Opc.Ua.NodeId referenceTypeId = ImportNodeId(node.References[ii].ReferenceType, context.NamespaceUris, true);
                     bool isInverse = !node.References[ii].IsForward;
                     Opc.Ua.ExpandedNodeId targetId = ImportExpandedNodeId(node.References[ii].Value, context.NamespaceUris, context.ServerUris);
 
-                    if (instance != null)
+                    if (importedNode is BaseInstanceState instance)
                     {
                         if (referenceTypeId == ReferenceTypeIds.HasModellingRule && !isInverse)
                         {
@@ -645,7 +703,7 @@ namespace Opc.Ua.Export
                         }
                     }
 
-                    if (type != null)
+                    if (importedNode is BaseTypeState type)
                     {
                         if (referenceTypeId == ReferenceTypeIds.HasSubtype && isInverse)
                         {
@@ -874,9 +932,8 @@ namespace Opc.Ua.Export
                 definition.SymbolicName = dataType.SymbolicName;
             }
 
-            StructureDefinition sd = source.Body as StructureDefinition;
 
-            if (sd != null)
+            if (source.Body is StructureDefinition sd)
             {
                 if (sd.StructureType == StructureType.Union || sd.StructureType == StructureType.UnionWithSubtypedValues)
                 {
@@ -941,9 +998,8 @@ namespace Opc.Ua.Export
                 }
             }
 
-            EnumDefinition ed = source.Body as EnumDefinition;
 
-            if (ed != null)
+            if (source.Body is EnumDefinition ed)
             {
                 definition.IsOptionSet = ed.IsOptionSet;
 
@@ -1168,7 +1224,7 @@ namespace Opc.Ua.Export
             {
                 try
                 {
-                    dimensions[ii] = Convert.ToUInt32(fields[ii]);
+                    dimensions[ii] = Convert.ToUInt32(fields[ii], CultureInfo.InvariantCulture);
                 }
                 catch
                 {

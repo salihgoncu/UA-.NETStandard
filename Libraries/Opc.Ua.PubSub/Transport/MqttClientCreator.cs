@@ -28,19 +28,24 @@
  * ======================================================================*/
 
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using MQTTnet;
+#if !NET8_0_OR_GREATER
 using MQTTnet.Client;
+#endif
 
 namespace Opc.Ua.PubSub.Transport
 {
     internal static class MqttClientCreator
     {
         #region Private
-        private static readonly Lazy<MqttFactory> mqttClientFactory = new Lazy<MqttFactory>(() => new MqttFactory());
-        #endregion
+#if !NET8_0_OR_GREATER
+        private static readonly Lazy<MqttFactory> s_mqttClientFactory = new Lazy<MqttFactory>(() => new MqttFactory());
+#else
+        private static readonly Lazy<MqttClientFactory> s_mqttClientFactory = new Lazy<MqttClientFactory>(() => new MqttClientFactory());
+#endif
+#endregion
 
         /// <summary>
         /// The method which returns an MQTT client
@@ -55,7 +60,7 @@ namespace Opc.Ua.PubSub.Transport
                                                                    Func<MqttApplicationMessageReceivedEventArgs, Task> receiveMessageHandler,
                                                                    StringCollection topicFilter = null)
         {
-            IMqttClient mqttClient = mqttClientFactory.Value.CreateMqttClient();
+            IMqttClient mqttClient = s_mqttClientFactory.Value.CreateMqttClient();
 
             // Hook the receiveMessageHandler in case we deal with a subscriber
             if ((receiveMessageHandler != null) && (topicFilter != null))
@@ -102,7 +107,7 @@ namespace Opc.Ua.PubSub.Transport
                         mqttClient?.Options?.ClientId,
                         e.Reason,
                         e.ClientWasConnected);
-                    await Connect(reconnectInterval, mqttClientOptions, mqttClient).ConfigureAwait(false);
+                    await ConnectAsync(reconnectInterval, mqttClientOptions, mqttClient).ConfigureAwait(false);
                 }
                 catch (Exception excOnDisconnect)
                 {
@@ -110,7 +115,7 @@ namespace Opc.Ua.PubSub.Transport
                 }
             };
 
-            await Connect(reconnectInterval, mqttClientOptions, mqttClient).ConfigureAwait(false);
+            await ConnectAsync(reconnectInterval, mqttClientOptions, mqttClient).ConfigureAwait(false);
 
             return mqttClient;
         }
@@ -121,23 +126,23 @@ namespace Opc.Ua.PubSub.Transport
         /// <param name="reconnectInterval"></param>
         /// <param name="mqttClientOptions"></param>
         /// <param name="mqttClient"></param>
-        private static async Task Connect(int reconnectInterval, MqttClientOptions mqttClientOptions, IMqttClient mqttClient)
+        private static async Task ConnectAsync(int reconnectInterval, MqttClientOptions mqttClientOptions, IMqttClient mqttClient)
         {
             try
             {
-                var result = await mqttClient.ConnectAsync(mqttClientOptions, CancellationToken.None).ConfigureAwait(false);
+                MqttClientConnectResult result = await mqttClient.ConnectAsync(mqttClientOptions, CancellationToken.None).ConfigureAwait(false);
                 if (MqttClientConnectResultCode.Success == result.ResultCode)
                 {
                     Utils.Trace("MQTT client {0} successfully connected", mqttClient?.Options?.ClientId);
                 }
                 else
                 {
-                    Utils.Trace("MQTT client {0} connect atempt returned {0}", mqttClient?.Options?.ClientId, result?.ResultCode);
+                    Utils.Trace("MQTT client {0} connect attempt returned {0}", mqttClient?.Options?.ClientId, result?.ResultCode);
                 }
             }
             catch (Exception e)
             {
-                Utils.Trace("MQTT client {0} connect atempt returned {1} will try to reconnect in {2} seconds",
+                Utils.Trace("MQTT client {0} connect attempt returned {1} will try to reconnect in {2} seconds",
                     mqttClient?.Options?.ClientId,
                     e.Message,
                     reconnectInterval);

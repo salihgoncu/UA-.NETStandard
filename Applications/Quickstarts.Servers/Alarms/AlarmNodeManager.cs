@@ -29,6 +29,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using Opc.Ua;
 using Opc.Ua.Server;
@@ -143,7 +144,7 @@ namespace Alarms
 
                     Type alarmControllerType = Type.GetType("Alarms.AlarmController");
                     int interval = 1000;
-                    string intervalString = interval.ToString();
+                    string intervalString = interval.ToString(CultureInfo.InvariantCulture);
 
                     int conditionTypeIndex = 0;
                     #endregion
@@ -577,7 +578,11 @@ namespace Alarms
                 string unmodifiedName = node.Identifier.ToString();
 
                 // This is bad, but I'm not sure why the NodeName is being attached with an underscore, it messes with this lookup.
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+                string name = unmodifiedName.Replace("Alarms_", "Alarms.", StringComparison.Ordinal);
+#else
                 string name = unmodifiedName.Replace("Alarms_", "Alarms.");
+#endif
 
                 string mapName = name;
                 if (name.EndsWith(AlarmDefines.TRIGGER_EXTENSION) || name.EndsWith(AlarmDefines.ALARM_EXTENSION))
@@ -663,7 +668,11 @@ namespace Alarms
                 // Alarms.UnitName.AnalogSource
                 if (splitString.Length >= 2)
                 {
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+                    sourceName = splitString[splitString.Length - 1].Replace("Source", "", StringComparison.Ordinal);
+#else
                     sourceName = splitString[splitString.Length - 1].Replace("Source", "");
+#endif
                 }
             }
 

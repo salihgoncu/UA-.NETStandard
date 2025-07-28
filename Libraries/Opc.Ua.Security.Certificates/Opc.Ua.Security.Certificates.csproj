@@ -1,9 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <AssemblyName>Opc.Ua.Security.Certificates</AssemblyName>
-    <TargetFrameworks>$(LibTargetFrameworks)</TargetFrameworks>
-    <PackageId>OPCFoundation.NetStandard.Opc.Ua.Security.Certificates</PackageId>
+    <TargetFrameworks>$(LibCoreTargetFrameworks)</TargetFrameworks>
+    <PackageId>$(PackagePrefix).Opc.Ua.Security.Certificates</PackageId>
+    <AssemblyName>$(AssemblyPrefix).Security.Certificates</AssemblyName>
     <RootNamespace>Opc.Ua.Security.Certificates</RootNamespace>
     <Description>OPC UA Security X509 Certificates Class Library</Description>
     <IsPackable>true</IsPackable>
@@ -15,26 +14,20 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
-    <DefineConstants>$(DefineConstants);ECC_SUPPORT</DefineConstants>
-  </PropertyGroup>
+  <!-- Choose which platforms support ECC -->
+  <Choose>
+    <When Condition="'$(TargetFramework)' == 'net462' Or '$(TargetFramework)' == 'netstandard2.0'">
+      <ItemGroup>
+        <PackageReference Include="BouncyCastle.Cryptography" />
+      </ItemGroup>
+    </When>
+    <Otherwise>
+      <PropertyGroup>
+        <DefineConstants>$(DefineConstants);ECC_SUPPORT</DefineConstants>
+      </PropertyGroup>
+    </Otherwise>
+  </Choose>
 
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
-    <DefineConstants>$(DefineConstants);ECC_SUPPORT</DefineConstants>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net48'">
-    <DefineConstants>$(DefineConstants);ECC_SUPPORT</DefineConstants>
-  </PropertyGroup>
-  
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net5.0'">
-    <DefineConstants>$(DefineConstants);ECC_SUPPORT</DefineConstants>
-  </PropertyGroup>
-  
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net6.0'">
-    <DefineConstants>$(DefineConstants);ECC_SUPPORT</DefineConstants>
-  </PropertyGroup>
-  
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <PackageId>$(PackageId).Debug</PackageId>
   </PropertyGroup>
@@ -43,26 +36,19 @@
     <DefineConstants>$(DefineConstants);SIGNASSEMBLY</DefineConstants>
   </PropertyGroup>
 
+  <!-- Choose Asn1 encoder and additional crypto library version -->
+  <Choose>
+    <When Condition="'$(TargetFramework)' == 'net472' OR '$(TargetFramework)' == 'net48'">
+      <ItemGroup>
+        <PackageReference Include="BouncyCastle.Cryptography" />
+      </ItemGroup>
+    </When>
+  </Choose>
+  
   <ItemGroup>
-    <PackageReference Include="System.Formats.Asn1" Version="6.0.0" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net462'">
-    <PackageReference Include="Portable.BouncyCastle" Version="1.9.0" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
-    <PackageReference Include="Portable.BouncyCastle" Version="1.9.0" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
-    <PackageReference Include="Portable.BouncyCastle" Version="1.9.0" />
+    <PackageReference Include="System.Formats.Asn1" />
   </ItemGroup>
   
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <PackageReference Include="Portable.BouncyCastle" Version="1.9.0" />
-  </ItemGroup>
-
   <Target Name="GetPackagingOutputs" />
 
 </Project>

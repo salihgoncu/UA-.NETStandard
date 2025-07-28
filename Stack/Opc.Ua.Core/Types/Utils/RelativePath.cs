@@ -354,6 +354,12 @@ namespace Opc.Ua
                     {
                         element.ReferenceTypeName = new QualifiedName(qname.Name, (ushort)mappings[qname.NamespaceIndex]);
                     }
+                    else
+                    {
+                        throw new ServiceResultException(
+                            StatusCodes.BadIndexRangeInvalid,
+                            Utils.Format("Cannot translate namespace index '{0}' to target namespace table.", qname.NamespaceIndex));
+                    }
                 }
 
                 qname = element.TargetName;
@@ -364,12 +370,18 @@ namespace Opc.Ua
                     {
                         element.TargetName = new QualifiedName(qname.Name, (ushort)mappings[qname.NamespaceIndex]);
                     }
+                    else
+                    {
+                        throw new ServiceResultException(
+                            StatusCodes.BadIndexRangeInvalid,
+                            Utils.Format("Cannot translate namespace index '{0}' to target namespace table.", qname.NamespaceIndex));
+                    }
                 }
             }
         }
         #endregion
 
-        #region Overriden Members
+        #region Overridden Members
         /// <summary>
         /// Formats the relative path as a string.
         /// </summary>
@@ -400,7 +412,7 @@ namespace Opc.Ua
 
                 foreach (Element element in m_elements)
                 {
-                    path.AppendFormat("{0}", element);
+                    path.AppendFormat(formatProvider, "{0}", element);
                 }
 
                 return path.ToString();
@@ -578,7 +590,7 @@ namespace Opc.Ua
             }
             #endregion
 
-            #region Overriden Members
+            #region Overridden Members
             /// <summary>
             /// Formats the relative path element as a string.
             /// </summary>
@@ -635,7 +647,7 @@ namespace Opc.Ua
 
                                 if (m_referenceTypeName.NamespaceIndex != 0)
                                 {
-                                    path.AppendFormat("{0}:", m_referenceTypeName.NamespaceIndex);
+                                    path.AppendFormat(formatProvider, "{0}:", m_referenceTypeName.NamespaceIndex);
                                 }
 
                                 EncodeName(path, m_referenceTypeName.Name);
@@ -651,7 +663,7 @@ namespace Opc.Ua
                     {
                         if (m_targetName.NamespaceIndex != 0)
                         {
-                            path.AppendFormat("{0}:", m_targetName.NamespaceIndex);
+                            path.AppendFormat(formatProvider, "{0}:", m_targetName.NamespaceIndex);
                         }
 
                         EncodeName(path, m_targetName.Name);

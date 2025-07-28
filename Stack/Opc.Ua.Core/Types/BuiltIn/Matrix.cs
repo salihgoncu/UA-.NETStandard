@@ -1,3 +1,15 @@
+/* Copyright (c) 1996-2022 The OPC Foundation. All rights reserved.
+   The source code in this file is covered under a dual-license scenario:
+     - RCL: for OPC Foundation Corporate Members in good-standing
+     - GPL V2: everybody else
+   RCL license terms accompanied with this source code. See http://opcfoundation.org/License/RCL/1.00/
+   GNU General Public License as published by the Free Software Foundation;
+   version 2 of the License are accompanied with this source code. See http://opcfoundation.org/License/GPLv2
+   This source code is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+*/
+
 using System;
 using System.Diagnostics;
 using System.Runtime.Serialization;
@@ -29,7 +41,6 @@ namespace Opc.Ua
 
             m_elements = Utils.FlattenArray(value);
             m_typeInfo = new TypeInfo(builtInType, m_dimensions.Length);
-
         }
 
         /// <summary>
@@ -60,7 +71,6 @@ namespace Opc.Ua
 
             SanityCheckArrayElements(m_elements, builtInType);
         }
-
         #endregion
 
         #region Public Members
@@ -135,9 +145,8 @@ namespace Opc.Ua
                 return true;
             }
 
-            Matrix matrix = obj as Matrix;
 
-            if (matrix != null)
+            if (obj is Matrix matrix)
             {
                 if (!m_typeInfo.Equals(matrix.TypeInfo))
                 {
@@ -194,7 +203,7 @@ namespace Opc.Ua
             {
                 StringBuilder buffer = new StringBuilder();
 
-                buffer.AppendFormat("{0}[", m_elements.GetType().GetElementType().Name);
+                buffer.AppendFormat(formatProvider, "{0}[", m_elements.GetType().GetElementType().Name);
 
                 for (int ii = 0; ii < m_dimensions.Length; ii++)
                 {
@@ -242,16 +251,14 @@ namespace Opc.Ua
         /// <param name="builtInType">The builtInType used for the elements.</param>
         [Conditional("DEBUG")]
         private static void SanityCheckArrayElements(Array elements, BuiltInType builtInType)
-
-
         {
 #if DEBUG
             TypeInfo sanityCheck = TypeInfo.Construct(elements);
             Debug.Assert(sanityCheck.BuiltInType == builtInType || builtInType == BuiltInType.Enumeration ||
-                    (sanityCheck.BuiltInType == BuiltInType.ExtensionObject && builtInType == BuiltInType.Null) ||
-                    (sanityCheck.BuiltInType == BuiltInType.Int32 && builtInType == BuiltInType.Enumeration) ||
-                    (sanityCheck.BuiltInType == BuiltInType.ByteString && builtInType == BuiltInType.Byte) ||
-                    (builtInType == BuiltInType.Variant));
+                (sanityCheck.BuiltInType == BuiltInType.ExtensionObject && builtInType == BuiltInType.Null) ||
+                (sanityCheck.BuiltInType == BuiltInType.Int32 && builtInType == BuiltInType.Enumeration) ||
+                (sanityCheck.BuiltInType == BuiltInType.ByteString && builtInType == BuiltInType.Byte) ||
+                (builtInType == BuiltInType.Variant));
 #endif																				 
         }
         #endregion
@@ -265,14 +272,14 @@ namespace Opc.Ua
         #region Helper methods
 
         /// <summary>
-        /// A function that performes a validation on a given index into the dimensions array
+        /// A function that performs a validation on a given index into the dimensions array
         /// </summary>
         /// <param name="idx">The index into the dimensions array</param>
         /// <param name="dimensions">The dimensions collection describing a matrix</param>
         /// <returns>The validation result</returns>
         public delegate bool ValidateDimensionsFunction(int idx, Int32Collection dimensions);
 
-        #region Publis Static
+        #region Public Static
         /// <summary>
         /// Validate the dimensions of a given matrix.
         /// As a side effect will bring to 0 negative dimensions.
@@ -392,15 +399,14 @@ namespace Opc.Ua
             }
             catch (OverflowException)
             {
-                throw new ArgumentException("The dimensions of the matrix are invalid and overflow when used to calculate the size.");
+                throw ServiceResultException.Create(StatusCodes.BadEncodingLimitsExceeded,
+                    "The dimensions of the matrix are invalid and overflow when used to calculate the size.");
             }
             if ((maxArrayLength > 0) && (flatLength > maxArrayLength))
             {
-                throw ServiceResultException.Create(
-                    StatusCodes.BadEncodingLimitsExceeded,
+                throw ServiceResultException.Create(StatusCodes.BadEncodingLimitsExceeded,
                     "Maximum array length of {0} was exceeded while summing up to {1} from the array dimensions",
-                    maxArrayLength,
-                    flatLength
+                    maxArrayLength, flatLength
                     );
             }
 

@@ -15,6 +15,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Opc.Ua.Security.Certificates;
 
 namespace Opc.Ua.Bindings
 {
@@ -24,7 +25,6 @@ namespace Opc.Ua.Bindings
     public partial class UaSCUaBinaryChannel : IMessageSink, IDisposable
     {
         #region Constructors
-
         /// <summary>
         /// Attaches the object to an existing socket.
         /// </summary>
@@ -35,10 +35,10 @@ namespace Opc.Ua.Bindings
             X509Certificate2 serverCertificate,
             EndpointDescriptionCollection endpoints,
             MessageSecurityMode securityMode,
-            string securityPolicyUri)
-        :
-            this(contextId, bufferManager, quotas, serverCertificate, null, endpoints, securityMode, securityPolicyUri)
-        { }
+            string securityPolicyUri) :
+            this(contextId, bufferManager, quotas, null, serverCertificate, endpoints, securityMode, securityPolicyUri)
+        {
+        }
 
         /// <summary>
         /// Attaches the object to an existing socket.
@@ -47,12 +47,28 @@ namespace Opc.Ua.Bindings
             string contextId,
             BufferManager bufferManager,
             ChannelQuotas quotas,
+            CertificateTypesProvider serverCertificateTypesProvider,
+            EndpointDescriptionCollection endpoints,
+            MessageSecurityMode securityMode,
+            string securityPolicyUri) :
+            this(contextId, bufferManager, quotas, serverCertificateTypesProvider, null, endpoints, securityMode, securityPolicyUri)
+        {
+        }
+
+        /// <summary>
+        /// Attaches the object to an existing socket.
+        /// </summary>
+        private UaSCUaBinaryChannel(
+            string contextId,
+            BufferManager bufferManager,
+            ChannelQuotas quotas,
+            CertificateTypesProvider serverCertificateTypesProvider,
             X509Certificate2 serverCertificate,
-            X509Certificate2Collection serverCertificateChain,
             EndpointDescriptionCollection endpoints,
             MessageSecurityMode securityMode,
             string securityPolicyUri)
         {
+
             if (bufferManager == null) throw new ArgumentNullException(nameof(bufferManager));
             if (quotas == null) throw new ArgumentNullException(nameof(quotas));
 
@@ -70,8 +86,12 @@ namespace Opc.Ua.Bindings
                 securityPolicyUri = SecurityPolicies.None;
             }
 
-            if (securityMode != MessageSecurityMode.None)
+            X509Certificate2Collection serverCertificateChain = null;
+            if (serverCertificateTypesProvider != null &&
+                securityMode != MessageSecurityMode.None)
             {
+                serverCertificate = serverCertificateTypesProvider.GetInstanceCertificate(securityPolicyUri);
+
                 if (serverCertificate == null) throw new ArgumentNullException(nameof(serverCertificate));
 
                 if (serverCertificate.RawData.Length > TcpMessageLimits.MaxCertificateSize)
@@ -80,9 +100,11 @@ namespace Opc.Ua.Bindings
                         Utils.Format("The DER encoded certificate may not be more than {0} bytes.", TcpMessageLimits.MaxCertificateSize),
                             nameof(serverCertificate));
                 }
+
+                serverCertificateChain = serverCertificateTypesProvider.LoadCertificateChainAsync(serverCertificate).GetAwaiter().GetResult();
             }
 
-            if (new UTF8Encoding().GetByteCount(securityPolicyUri) > TcpMessageLimits.MaxSecurityPolicyUriSize)
+            if (Encoding.UTF8.GetByteCount(securityPolicyUri) > TcpMessageLimits.MaxSecurityPolicyUriSize)
             {
                 throw new ArgumentException(
                     Utils.Format("UTF-8 form of the security policy URI may not be more than {0} bytes.", TcpMessageLimits.MaxSecurityPolicyUriSize),
@@ -91,6 +113,7 @@ namespace Opc.Ua.Bindings
 
             m_bufferManager = bufferManager;
             m_quotas = quotas;
+            m_serverCertificateTypesProvider = serverCertificateTypesProvider;
             m_serverCertificate = serverCertificate;
             m_serverCertificateChain = serverCertificateChain;
             m_endpoints = endpoints;
@@ -99,7 +122,7 @@ namespace Opc.Ua.Bindings
             m_discoveryOnly = false;
             m_uninitialized = true;
 
-            m_state = TcpChannelState.Closed;
+            m_state = (int)TcpChannelState.Closed;
             m_receiveBufferSize = quotas.MaxBufferSize;
             m_sendBufferSize = quotas.MaxBufferSize;
             m_activeWriteRequests = 0;
@@ -131,6 +154,7 @@ namespace Opc.Ua.Bindings
             m_maxResponseChunkCount = CalculateChunkCount(m_maxResponseMessageSize, TcpMessageLimits.MinBufferSize);
 
             CalculateSymmetricKeySizes();
+
         }
         #endregion
 
@@ -150,7 +174,20 @@ namespace Opc.Ua.Bindings
         {
             if (disposing)
             {
-                // nothing to do.
+                DiscardTokens();
+#if ECC_SUPPORT
+                if (m_localNonce != null)
+                {
+                    m_localNonce.Dispose();
+                    m_localNonce = null;
+                }
+
+                if (m_remoteNonce != null)
+                {
+                    m_remoteNonce.Dispose();
+                    m_remoteNonce = null;
+                }
+#endif
             }
         }
         #endregion
@@ -163,10 +200,7 @@ namespace Opc.Ua.Bindings
         {
             get
             {
-                lock (m_lock)
-                {
-                    return m_channelId;
-                }
+                return m_channelId;
             }
         }
 
@@ -177,10 +211,7 @@ namespace Opc.Ua.Bindings
         {
             get
             {
-                lock (m_lock)
-                {
-                    return m_globalChannelId;
-                }
+                return m_globalChannelId;
             }
         }
 
@@ -194,6 +225,11 @@ namespace Opc.Ua.Bindings
                 m_StateChanged = callback;
             }
         }
+
+        /// <summary>
+        /// The tickcount in milliseconds when the channel received/sent the last message.
+        /// </summary>
+        protected int LastActiveTickCount => m_lastActiveTickCount;
         #endregion
 
         #region Channel State Functions
@@ -202,10 +238,11 @@ namespace Opc.Ua.Bindings
         /// </summary>
         protected void ChannelStateChanged(TcpChannelState state, ServiceResult reason)
         {
-            if (m_StateChanged != null)
+            var stateChanged = m_StateChanged;
+            if (stateChanged != null)
             {
                 Task.Run(() => {
-                    m_StateChanged?.Invoke(this, state, reason);
+                    stateChanged?.Invoke(this, state, reason);
                 });
             }
         }
@@ -213,11 +250,42 @@ namespace Opc.Ua.Bindings
         /// <summary>
         /// Returns a new sequence number.
         /// </summary>
-        protected uint GetNewSequenceNumber()
+	    protected uint GetNewSequenceNumber()
         {
-            return Utils.IncrementIdentifier(ref m_sequenceNumber);
-        }
+            bool isLegacy = !EccUtils.IsEccPolicy(SecurityPolicyUri);
 
+            long newSeqNumber = Interlocked.Increment(ref m_sequenceNumber);
+            bool maxValueOverflow = isLegacy ? newSeqNumber > kMaxValueLegacyTrue : newSeqNumber > kMaxValueLegacyFalse;
+
+            // LegacySequenceNumbers are TRUE for non ECC profiles
+            // https://reference.opcfoundation.org/Core/Part6/v105/docs/6.7.2.4
+            if (isLegacy)
+            {
+                if (maxValueOverflow)
+                {
+                    // First number after wrap around shall be less than 1024
+                    // 1 for legaccy reasons
+                    Interlocked.Exchange(ref m_sequenceNumber, 1);
+                    return 1;
+                }
+                return (uint)newSeqNumber;
+            }
+            else
+            {
+                uint retVal = (uint)newSeqNumber - 1;
+                if (maxValueOverflow)
+                {
+                    // First number after wrap around and as initial value shall be 0
+                    Interlocked.Exchange(ref m_sequenceNumber, 0);
+                    Interlocked.Exchange(ref m_localSequenceNumber, 0);
+                    return retVal;
+                }
+                Interlocked.Exchange(ref m_localSequenceNumber, retVal);
+                return retVal;
+            }
+        }
+    
+    
         /// <summary>
         /// Resets the sequence number after a connect.
         /// </summary>
@@ -231,6 +299,17 @@ namespace Opc.Ua.Bindings
         /// </summary>
         protected bool VerifySequenceNumber(uint sequenceNumber, string context)
         {
+
+            // Accept the first sequence number depending on security policy
+            if (m_firstReceivedSequenceNumber &&
+                (!EccUtils.IsEccPolicy(SecurityPolicyUri) ||
+                (EccUtils.IsEccPolicy(SecurityPolicyUri) && (sequenceNumber == 0) )))
+            {
+                m_remoteSequenceNumber = sequenceNumber;
+                m_firstReceivedSequenceNumber = false;
+                return true;
+            }
+
             // everything ok if new number is greater.
             if (sequenceNumber > m_remoteSequenceNumber)
             {
@@ -241,8 +320,10 @@ namespace Opc.Ua.Bindings
             // check for a valid rollover.
             if (m_remoteSequenceNumber > TcpMessageLimits.MinSequenceNumber && sequenceNumber < TcpMessageLimits.MaxRolloverSequenceNumber)
             {
-                // only one rollover per token is allowed.
-                if (!m_sequenceRollover)
+                // only one rollover per token is allowed and with valid values depending on security policy
+                if (!m_sequenceRollover &&
+                    (!EccUtils.IsEccPolicy(SecurityPolicyUri) ||
+                    (EccUtils.IsEccPolicy(SecurityPolicyUri) && (sequenceNumber == 0) )))
                 {
                     m_sequenceRollover = true;
                     m_remoteSequenceNumber = sequenceNumber;
@@ -310,11 +391,7 @@ namespace Opc.Ua.Bindings
         /// </summary>
         protected int GetSavedChunksTotalSize()
         {
-            if (m_partialMessageChunks != null)
-            {
-                return m_partialMessageChunks.TotalSize;
-            }
-            return 0;
+            return m_partialMessageChunks?.TotalSize ?? 0;
         }
 
         /// <summary>
@@ -339,22 +416,19 @@ namespace Opc.Ua.Bindings
         /// <inheritdoc/>
         public virtual void OnMessageReceived(IMessageSocket source, ArraySegment<byte> message)
         {
-            lock (DataLock)
+            try
             {
-                try
-                {
-                    uint messageType = BitConverter.ToUInt32(message.Array, message.Offset);
+                uint messageType = BitConverter.ToUInt32(message.Array, message.Offset);
 
-                    if (!HandleIncomingMessage(messageType, message))
-                    {
-                        BufferManager.ReturnBuffer(message.Array, "OnMessageReceived");
-                    }
-                }
-                catch (Exception e)
+                if (!HandleIncomingMessage(messageType, message))
                 {
-                    HandleMessageProcessingError(e, StatusCodes.BadTcpInternalError, "An error occurred receiving a message.");
                     BufferManager.ReturnBuffer(message.Array, "OnMessageReceived");
                 }
+            }
+            catch (Exception e)
+            {
+                HandleMessageProcessingError(e, StatusCodes.BadTcpInternalError, "An error occurred receiving a message.");
+                BufferManager.ReturnBuffer(message.Array, "OnMessageReceived");
             }
         }
 
@@ -448,7 +522,12 @@ namespace Opc.Ua.Bindings
         protected void BeginWriteMessage(ArraySegment<byte> buffer, object state)
         {
             ServiceResult error = ServiceResult.Good;
-            IMessageSocketAsyncEventArgs args = m_socket.MessageSocketEventArgs();
+            IMessageSocketAsyncEventArgs args = m_socket?.MessageSocketEventArgs();
+
+            if (args == null)
+            {
+                throw ServiceResultException.Create(StatusCodes.BadConnectionClosed, "The socket was closed by the remote application.");
+            }
 
             try
             {
@@ -475,8 +554,11 @@ namespace Opc.Ua.Bindings
             catch (Exception ex)
             {
                 error = ServiceResult.Create(ex, StatusCodes.BadTcpInternalError, "Unexpected error during write operation.");
-                HandleWriteComplete(null, state, args.BytesTransferred, error);
-                args.Dispose();
+                if (args != null)
+                {
+                    HandleWriteComplete(null, state, args.BytesTransferred, error);
+                    args.Dispose();
+                }
             }
         }
 
@@ -494,8 +576,8 @@ namespace Opc.Ua.Bindings
                 args.BufferList = buffers;
                 args.Completed += OnWriteComplete;
                 args.UserToken = state;
-                if (m_socket == null ||
-                    !m_socket.SendAsync(args))
+                var socket = m_socket;
+                if (socket == null || !socket.SendAsync(args))
                 {
                     // I/O completed synchronously
                     if (args.IsSocketError || (args.BytesTransferred < buffers.TotalSize))
@@ -523,10 +605,10 @@ namespace Opc.Ua.Bindings
         /// </summary>
         protected virtual void HandleWriteComplete(BufferCollection buffers, object state, int bytesWritten, ServiceResult result)
         {
-            if (buffers != null)
-            {
-                buffers.Release(BufferManager, "WriteOperation");
-            }
+            // Communication is active on the channel
+            UpdateLastActiveTime();
+
+            buffers?.Release(BufferManager, "WriteOperation");
             Interlocked.Decrement(ref m_activeWriteRequests);
         }
 
@@ -535,16 +617,14 @@ namespace Opc.Ua.Bindings
         /// </summary>
         protected static void WriteErrorMessageBody(BinaryEncoder encoder, ServiceResult error)
         {
-            string reason = (error.LocalizedText != null) ? error.LocalizedText.Text : null;
+            string reason = error.LocalizedText?.Text;
 
             // check that length is not exceeded.
             if (reason != null)
             {
-                UTF8Encoding encoding = new UTF8Encoding();
-
-                if (encoding.GetByteCount(reason) > TcpMessageLimits.MaxErrorReasonLength)
+                if (Encoding.UTF8.GetByteCount(reason) > TcpMessageLimits.MaxErrorReasonLength)
                 {
-                    reason = reason.Substring(0, TcpMessageLimits.MaxErrorReasonLength / encoding.GetMaxByteCount(1));
+                    reason = reason.Substring(0, TcpMessageLimits.MaxErrorReasonLength / Encoding.UTF8.GetMaxByteCount(1));
                 }
             }
 
@@ -574,7 +654,12 @@ namespace Opc.Ua.Bindings
                     reasonBytes[ii] = decoder.ReadByte(null);
                 }
 
-                reason = new UTF8Encoding().GetString(reasonBytes, 0, reasonLength);
+                reason = Encoding.UTF8.GetString(reasonBytes, 0, reasonLength);
+            }
+
+            if (reason == null)
+            {
+                reason = new ServiceResult(statusCode).ToString();
             }
 
             return ServiceResult.Create(statusCode, "Error received from remote host: {0}", reason);
@@ -732,16 +817,14 @@ namespace Opc.Ua.Bindings
         /// </summary>
         protected TcpChannelState State
         {
-            get { return m_state; }
+            get => (TcpChannelState)m_state;
 
             set
             {
-                if (m_state != value)
+                if (Interlocked.Exchange(ref m_state, (int)value) != (int)value)
                 {
-                    Utils.LogInfo("ChannelId {0}: in {1} state.", ChannelId, value);
+                    Utils.LogTrace("ChannelId {0}: in {1} state.", ChannelId, value);
                 }
-
-                m_state = value;
             }
         }
 
@@ -761,7 +844,6 @@ namespace Opc.Ua.Bindings
                 m_globalChannelId = Utils.Format("{0}-{1}", m_contextId, m_channelId);
             }
         }
-
         #endregion
 
         #region WriteOperation Class
@@ -824,10 +906,40 @@ namespace Opc.Ua.Bindings
             }
             return 1;
         }
+
+        /// <summary>
+        /// Check the MessageType and size against the content and size of the stream.
+        /// </summary>
+        /// <param name="decoder">The decoder of the stream.</param>
+        /// <param name="expectedMessageType">The message type to be checked.</param>
+        /// <param name="count">The length of the message.</param>
+        protected static void ReadAndVerifyMessageTypeAndSize(IDecoder decoder, uint expectedMessageType, int count)
+        {
+            uint messageType = decoder.ReadUInt32(null);
+            if (messageType != expectedMessageType)
+            {
+                throw ServiceResultException.Create(StatusCodes.BadTcpMessageTypeInvalid,
+                    "Expected message type {0:X8} instead of {0:X8}.", expectedMessageType, messageType);
+            }
+            int messageSize = decoder.ReadInt32(null);
+            if (messageSize > count)
+            {
+                throw ServiceResultException.Create(StatusCodes.BadTcpMessageTooLarge,
+                    "Messages size {0} is larger than buffer size {1}.", messageSize, count);
+            }
+        }
+
+        /// <summary>
+        /// Update the last time that communication has occured on the channel.
+        /// </summary>
+        public void UpdateLastActiveTime()
+        {
+            m_lastActiveTickCount = HiResClock.TickCount;
+        }
         #endregion
 
         #region Private Fields
-        private object m_lock = new object();
+        private readonly object m_lock = new object();
         private IMessageSocket m_socket;
         private BufferManager m_bufferManager;
         private ChannelQuotas m_quotas;
@@ -840,23 +952,33 @@ namespace Opc.Ua.Bindings
         private int m_maxResponseChunkCount;
         private string m_contextId;
 
-        private TcpChannelState m_state;
+        // treat TcpChannelState as int to use Interlocked
+        private int m_state;
         private uint m_channelId;
         private string m_globalChannelId;
         private long m_sequenceNumber;
+        private long m_localSequenceNumber;
         private uint m_remoteSequenceNumber;
         private bool m_sequenceRollover;
+        private bool m_firstReceivedSequenceNumber = true;
         private uint m_partialRequestId;
         private BufferCollection m_partialMessageChunks;
 
         private TcpChannelStateEventHandler m_StateChanged;
+
+        private int m_lastActiveTickCount = HiResClock.TickCount;
+        #endregion
+
+        #region Constants
+        private const uint kMaxValueLegacyTrue = TcpMessageLimits.MinSequenceNumber;
+        private const uint kMaxValueLegacyFalse = UInt32.MaxValue;
         #endregion
     }
 
     /// <summary>
     /// The possible channel states.
     /// </summary>
-    public enum TcpChannelState
+    public enum TcpChannelState : int
     {
         /// <summary>
         /// The channel is closed.
@@ -886,7 +1008,7 @@ namespace Opc.Ua.Bindings
         /// <summary>
         /// The channel is in a error state.
         /// </summary>
-        Faulted
+        Faulted,
     }
 
     /// <summary>

@@ -11,11 +11,11 @@
 */
 
 using System;
-using System.Collections.Generic;
+using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Opc.Ua.Security.Certificates;
 
 namespace Opc.Ua.Bindings
 {
@@ -33,26 +33,10 @@ namespace Opc.Ua.Bindings
             ITcpChannelListener listener,
             BufferManager bufferManager,
             ChannelQuotas quotas,
-            X509Certificate2 serverCertificate,
+            CertificateTypesProvider serverCertificateTypeProvider,
             EndpointDescriptionCollection endpoints)
         :
-            this(contextId, listener, bufferManager, quotas, serverCertificate, null, endpoints)
-        {
-        }
-
-        /// <summary>
-        /// Attaches the object to an existing socket.
-        /// </summary>
-        public TcpListenerChannel(
-            string contextId,
-            ITcpChannelListener listener,
-            BufferManager bufferManager,
-            ChannelQuotas quotas,
-            X509Certificate2 serverCertificate,
-            X509Certificate2Collection serverCertificateChain,
-            EndpointDescriptionCollection endpoints)
-        :
-            base(contextId, bufferManager, quotas, serverCertificate, serverCertificateChain, endpoints, MessageSecurityMode.None, SecurityPolicies.None)
+            base(contextId, bufferManager, quotas, serverCertificateTypeProvider, endpoints, MessageSecurityMode.None, SecurityPolicies.None)
         {
             m_listener = listener;
         }
@@ -62,15 +46,8 @@ namespace Opc.Ua.Bindings
         /// <summary>
         /// An overrideable version of the Dispose.
         /// </summary>
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA2213:DisposableFieldsShouldBeDisposed", MessageId = "m_cleanupTimer")]
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-            {
-                Utils.SilentDispose(m_cleanupTimer);
-                m_cleanupTimer = null;
-            }
-
             base.Dispose(disposing);
         }
         #endregion
@@ -100,7 +77,7 @@ namespace Opc.Ua.Bindings
         /// <summary>
         /// Sets the callback used to raise channel audit events.
         /// </summary>
-        public void SetReportOpenSecureChannellAuditCalback(ReportAuditOpenSecureChannelEventHandler callback)
+        public void SetReportOpenSecureChannelAuditCallback(ReportAuditOpenSecureChannelEventHandler callback)
         {
             lock (DataLock)
             {
@@ -111,7 +88,7 @@ namespace Opc.Ua.Bindings
         /// <summary>
         /// Sets the callback used to raise channel audit events.
         /// </summary>
-        public void SetReportCloseSecureChannellAuditCalback(ReportAuditCloseSecureChannelEventHandler callback)
+        public void SetReportCloseSecureChannelAuditCallback(ReportAuditCloseSecureChannelEventHandler callback)
         {
             lock (DataLock)
             {
@@ -122,7 +99,7 @@ namespace Opc.Ua.Bindings
         /// <summary>
         /// Sets the callback used to raise channel audit events.
         /// </summary>
-        public void SetReportCertificateAuditCalback(ReportAuditCertificateEventHandler callback)
+        public void SetReportCertificateAuditCallback(ReportAuditCertificateEventHandler callback)
         {
             lock (DataLock)
             {
@@ -150,12 +127,53 @@ namespace Opc.Ua.Bindings
 
                 Socket = new TcpMessageSocket(this, socket, BufferManager, Quotas.MaxBufferSize);
 
-                Utils.LogInfo("{0} SOCKET ATTACHED: {1:X8}, ChannelId={2}", ChannelName, Socket.Handle, ChannelId);
+                Utils.LogTrace("{0} SOCKET ATTACHED: {1:X8}, ChannelId={2}", ChannelName, Socket.Handle, ChannelId);
 
                 Socket.ReadNextMessage();
 
-                // automatically clean up the channel if no hello received.
-                StartCleanupTimer(StatusCodes.BadTimeout);
+            }
+        }
+
+        /// <summary>
+        /// Clean up an Opening or Open channel that has been idle for too long.
+        /// </summary>
+        public void IdleCleanup()
+        {
+            TcpChannelState state;
+
+            lock (DataLock)
+            {
+                state = State;
+                if (state == TcpChannelState.Open || state == TcpChannelState.Connecting)
+                {
+                    state = State = TcpChannelState.Closing;
+                }
+            }
+
+            if (state == TcpChannelState.Closing || state == TcpChannelState.Opening || state == TcpChannelState.Faulted)
+            {
+                OnCleanup(new ServiceResult(StatusCodes.BadNoCommunication, "Channel closed due to inactivity."));
+            }
+        }
+
+        /// <summary>
+        /// The time in milliseconds elapsed since the channel received or sent messages
+        /// or received a keep alive.
+        /// </summary>
+        public int ElapsedSinceLastActiveTime => (HiResClock.TickCount - LastActiveTickCount);
+
+        /// <summary>
+        /// Has the channel been used in a session
+        /// </summary>
+        public bool UsedBySession
+        {
+            get
+            {
+                return m_usedBySession;
+            }
+            protected set
+            {
+                m_usedBySession = value;
             }
         }
         #endregion
@@ -206,13 +224,6 @@ namespace Opc.Ua.Bindings
         {
             lock (DataLock)
             {
-                Utils.LogError(
-                    "{0} ForceChannelFault Socket={1:X8}, ChannelId={2}, TokenId={3}, Reason={4}",
-                    ChannelName,
-                    (Socket != null) ? Socket.Handle : 0,
-                    (CurrentToken != null) ? CurrentToken.ChannelId : 0,
-                    (CurrentToken != null) ? CurrentToken.TokenId : 0,
-                    reason);
 
                 CompleteReverseHello(new ServiceResultException(reason));
 
@@ -220,6 +231,27 @@ namespace Opc.Ua.Bindings
                 if (State == TcpChannelState.Faulted)
                 {
                     return;
+                }
+
+                bool close = false;
+                if (State != TcpChannelState.Connecting && State != TcpChannelState.Opening)
+                {
+                    int? socketHandle = Socket?.Handle;
+                    if (socketHandle != null && socketHandle != -1)
+                    {
+                        Utils.LogError(
+                            "{0} ForceChannelFault Socket={1:X8}, ChannelId={2}, TokenId={3}, Reason={4}",
+                            ChannelName,
+                            socketHandle,
+                            (CurrentToken != null) ? CurrentToken.ChannelId : 0,
+                            (CurrentToken != null) ? CurrentToken.TokenId : 0,
+                            reason);
+                    }
+                }
+                else
+                {
+                    // Close immediately if the client never got out of connecting or opening state
+                    close = true;
                 }
 
                 // send error and close response.
@@ -234,32 +266,26 @@ namespace Opc.Ua.Bindings
                 State = TcpChannelState.Faulted;
                 m_responseRequired = false;
 
+                if (close)
+                {
+                    // mark the RemoteAddress as potential problematic if Basic128Rsa15
+                    if ((SecurityPolicyUri == SecurityPolicies.Basic128Rsa15) &&
+                        (reason.StatusCode == StatusCodes.BadSecurityChecksFailed || reason.StatusCode == StatusCodes.BadTcpMessageTypeInvalid))
+                    {
+                        var tcpTransportListener = m_listener as TcpTransportListener;
+                        if (tcpTransportListener != null)
+                        {
+                            tcpTransportListener.MarkAsPotentialProblematic
+                                (((IPEndPoint)Socket.RemoteEndpoint).Address);
+                        }
+                    }
+
+                    // close channel immediately.
+                    ChannelFaulted();
+                }
+
                 // notify any monitors.
-                NotifyMonitors(reason, false);
-
-                // ensure the channel will be cleaned up if the client does not reconnect.
-                StartCleanupTimer(reason);
-            }
-        }
-
-        /// <summary>
-        /// Starts a timer that will clean up the channel if it is not opened/re-opened.
-        /// </summary>
-        protected void StartCleanupTimer(ServiceResult reason)
-        {
-            CleanupTimer();
-            m_cleanupTimer = new Timer(OnCleanup, reason, Quotas.ChannelLifetime, Timeout.Infinite);
-        }
-
-        /// <summary>
-        /// Cleans up a timer that will clean up the channel if it is not opened/re-opened.
-        /// </summary>
-        protected void CleanupTimer()
-        {
-            if (m_cleanupTimer != null)
-            {
-                m_cleanupTimer.Dispose();
-                m_cleanupTimer = null;
+                NotifyMonitors(reason, close);
             }
         }
 
@@ -270,7 +296,7 @@ namespace Opc.Ua.Bindings
         {
             lock (DataLock)
             {
-                CleanupTimer();
+
                 // nothing to do if the channel is now open or closed.
                 if (State == TcpChannelState.Closed || State == TcpChannelState.Open)
                 {
@@ -278,9 +304,7 @@ namespace Opc.Ua.Bindings
                 }
 
                 // get reason for cleanup.
-                ServiceResult reason = state as ServiceResult;
-
-                if (reason == null)
+                if (!(state is ServiceResult reason))
                 {
                     reason = new ServiceResult(StatusCodes.BadTimeout);
                 }
@@ -300,15 +324,13 @@ namespace Opc.Ua.Bindings
 
         /// <summary>
         /// Closes the channel and releases resources.
+        /// Sets state to Closed and notifies monitors.
         /// </summary>
         protected void ChannelClosed()
         {
             try
             {
-                if (Socket != null)
-                {
-                    Socket.Close();
-                }
+                Socket?.Close();
             }
             finally
             {
@@ -317,8 +339,23 @@ namespace Opc.Ua.Bindings
 
                 // notify any monitors.
                 NotifyMonitors(new ServiceResult(StatusCodes.BadConnectionClosed), true);
+            }
+        }
 
-                CleanupTimer();
+        /// <summary>
+        /// Closes the channel and releases resources.
+        /// Sets state to Faulted.
+        /// </summary>
+        protected void ChannelFaulted()
+        {
+            try
+            {
+                Socket?.Close();
+            }
+            finally
+            {
+                State = TcpChannelState.Faulted;
+                m_listener.ChannelClosed(ChannelId);
             }
         }
 
@@ -540,7 +577,7 @@ namespace Opc.Ua.Bindings
         private ReportAuditCloseSecureChannelEventHandler m_reportAuditCloseSecureChannelEvent;
         private ReportAuditCertificateEventHandler m_reportAuditCertificateEvent;
         private long m_lastTokenId;
-        private Timer m_cleanupTimer;
+        private bool m_usedBySession;
         #endregion
     }
 

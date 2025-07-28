@@ -17,11 +17,14 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
+using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Opc.Ua.Bindings;
+using System.Net.Sockets;
+using Opc.Ua.Security.Certificates;
 
 namespace Opc.Ua
 {
@@ -344,7 +347,7 @@ namespace Opc.Ua
         /// <summary>
         /// Initializes the list of base addresses.
         /// </summary>
-        private void InitializeBaseAddresses(ApplicationConfiguration configuration)
+        protected void InitializeBaseAddresses(ApplicationConfiguration configuration)
         {
             BaseAddresses = new List<BaseAddress>();
 
@@ -569,6 +572,59 @@ namespace Opc.Ua
         {
             return null;
         }
+
+        /// <summary>
+        /// Specifies if the server requires encryption; if so the server needs to send its certificate to the clients and validate the client certificates
+        /// </summary>
+        /// <param name="description">The description.</param>
+        public static bool RequireEncryption(EndpointDescription description)
+        {
+            bool requireEncryption = false;
+
+            if (description != null)
+            {
+                requireEncryption = description.SecurityPolicyUri != SecurityPolicies.None;
+
+                if (!requireEncryption)
+                {
+                    foreach (UserTokenPolicy userTokenPolicy in description.UserIdentityTokens)
+                    {
+                        if (userTokenPolicy.SecurityPolicyUri != SecurityPolicies.None)
+                        {
+                            requireEncryption = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            return requireEncryption;
+        }
+
+        /// <summary>
+        /// Sets the Server Certificate in an Endpoint description if the description requires encryption.
+        /// </summary>
+        /// <param name="description">the endpoint Description to set the server certificate</param>
+        /// <param name="certificateTypesProvider">The provider to get the server certificate per certificate type.</param>
+        /// <param name="checkRequireEncryption">only set certificate if the endpoint does require Encryption</param>
+        public static void SetServerCertificateInEndpointDescription(
+            EndpointDescription description,
+            CertificateTypesProvider certificateTypesProvider,
+            bool checkRequireEncryption = true)
+        {
+            if (!checkRequireEncryption || RequireEncryption(description))
+            {
+                X509Certificate2 serverCertificate = certificateTypesProvider.GetInstanceCertificate(description.SecurityPolicyUri);
+                // check if complete chain should be sent.
+                if (certificateTypesProvider.SendCertificateChain)
+                {
+                    description.ServerCertificate = certificateTypesProvider.LoadCertificateChainRaw(serverCertificate);
+                }
+                else
+                {
+                    description.ServerCertificate = serverCertificate.RawData;
+                }
+            }
+        }
         #endregion
 
         #region BaseAddress Class
@@ -628,35 +684,19 @@ namespace Opc.Ua
         }
 
         /// <summary>
-        /// The server's application instance certificate.
+        /// The server's application instance certificate types provider.
         /// </summary>
-        /// <value>The instance X.509 certificate.</value>
-        protected X509Certificate2 InstanceCertificate
+        /// <value>The provider for the X.509 certificates.</value>
+        public CertificateTypesProvider InstanceCertificateTypesProvider
         {
             get
             {
-                return (X509Certificate2)m_instanceCertificate;
+                return m_instanceCertificateTypesProvider;
             }
 
             private set
             {
-                m_instanceCertificate = value;
-            }
-        }
-
-        /// <summary>
-        /// Gets the instance certificate chain.
-        /// </summary>
-        protected X509Certificate2Collection InstanceCertificateChain
-        {
-            get
-            {
-                return m_instanceCertificateChain;
-            }
-
-            private set
-            {
-                m_instanceCertificateChain = value;
+                m_instanceCertificateTypesProvider = value;
             }
         }
 
@@ -750,62 +790,30 @@ namespace Opc.Ua
         }
 
         /// <summary>
-        /// Specifies if the server requires encryption; if so the server needs to send its certificate to the clients and validate the client certificates
-        /// </summary>
-        /// <param name="description">The description.</param>
-        public static bool RequireEncryption(EndpointDescription description)
-        {
-            bool requireEncryption = false;
-
-            if (description != null)
-            {
-                requireEncryption = description.SecurityPolicyUri != SecurityPolicies.None;
-
-                if (!requireEncryption)
-                {
-                    foreach (UserTokenPolicy userTokenPolicy in description.UserIdentityTokens)
-                    {
-                        if (userTokenPolicy.SecurityPolicyUri != SecurityPolicies.None)
-                        {
-                            requireEncryption = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            return requireEncryption;
-        }
-
-        /// <summary>
         /// Called after the application certificate update.
         /// </summary>
         protected virtual void OnCertificateUpdate(object sender, CertificateUpdateEventArgs e)
         {
-            // disconnect all sessions
-            InstanceCertificateChain = null;
-            InstanceCertificate = e.SecurityConfiguration.ApplicationCertificate.Certificate;
-            if (Configuration.SecurityConfiguration.SendCertificateChain)
+            InstanceCertificateTypesProvider.Update(e.SecurityConfiguration);
+
+            foreach (var certificateIdentifier in Configuration.SecurityConfiguration.ApplicationCertificates)
             {
-                InstanceCertificateChain = new X509Certificate2Collection(InstanceCertificate);
-                var issuers = new List<CertificateIdentifier>();
-                var validationErrors = new Dictionary<X509Certificate2, ServiceResultException>();
-                Configuration.CertificateValidator.GetIssuersNoExceptionsOnGetIssuer(InstanceCertificateChain, issuers, validationErrors).GetAwaiter().GetResult();
-                foreach (var error in validationErrors)
-                {
-                    if (error.Value != null)
-                    {
-                        Utils.LogCertificate("OnCertificateUpdate: GetIssuers Validation Error: {0}", error.Key, error.Value.Result);
-                    }
-                }
-                for (int i = 0; i < issuers.Count; i++)
-                {
-                    InstanceCertificateChain.Add(issuers[i].Certificate);
-                }
+                // preload chain
+                X509Certificate2 certificate = certificateIdentifier.Find(false).GetAwaiter().GetResult();
+                InstanceCertificateTypesProvider.LoadCertificateChainAsync(certificate).GetAwaiter().GetResult();
+            }
+
+            //update certificate in the endpoint descriptions
+            foreach (EndpointDescription endpointDescription in m_endpoints)
+            {
+                SetServerCertificateInEndpointDescription(
+                    endpointDescription,
+                    InstanceCertificateTypesProvider);
             }
 
             foreach (var listener in TransportListeners)
             {
-                listener.CertificateUpdate(e.CertificateValidator, InstanceCertificate, InstanceCertificateChain);
+                listener.CertificateUpdate(e.CertificateValidator, InstanceCertificateTypesProvider);
             }
         }
 
@@ -828,14 +836,24 @@ namespace Opc.Ua
             // create the stack listener.
             try
             {
-                TransportListenerSettings settings = new TransportListenerSettings();
+                TransportListenerSettings settings = new TransportListenerSettings {
+                    Descriptions = endpoints,
+                    Configuration = endpointConfiguration,
+                    ServerCertificateTypesProvider = InstanceCertificateTypesProvider,
+                    CertificateValidator = certificateValidator,
+                    NamespaceUris = MessageContext.NamespaceUris,
+                    Factory = MessageContext.Factory,
+                    MaxChannelCount = 0,
+                };
 
-                settings.Descriptions = endpoints;
-                settings.Configuration = endpointConfiguration;
-                settings.ServerCertificate = InstanceCertificate;
-                settings.CertificateValidator = certificateValidator;
-                settings.NamespaceUris = MessageContext.NamespaceUris;
-                settings.Factory = MessageContext.Factory;
+                if (m_configuration is ApplicationConfiguration applicationConfiguration)
+                {
+                    settings.MaxChannelCount = applicationConfiguration.ServerConfiguration.MaxChannelCount;
+                    if (Utils.IsUriHttpsScheme(endpointUri.AbsoluteUri))
+                    {
+                        settings.HttpsMutualTls = applicationConfiguration.ServerConfiguration.HttpsMutualTls;
+                    }
+                }
 
                 listener.Open(
                    endpointUri,
@@ -934,7 +952,28 @@ namespace Opc.Ua
                 }
 
                 // substitute the computer name for any local IP if an IP is used by client.
-                IPAddress[] addresses = Utils.GetHostAddresses(Utils.GetHostName());
+                IPAddress[] addresses = Array.Empty<IPAddress>();
+                try
+                {
+                    addresses = Utils.GetHostAddresses(computerName);
+                }
+                catch (SocketException e)
+                {
+                    Utils.LogWarning(e, "Unable to get host addresses for hostname {0}.", hostname);
+                }
+
+                if (addresses.Length == 0)
+                {
+                    string fullName = Dns.GetHostName();
+                    try
+                    {
+                        addresses = Utils.GetHostAddresses(fullName);
+                    }
+                    catch (SocketException e)
+                    {
+                        Utils.LogError(e, "Unable to get host addresses for DNS hostname {0}.", fullName);
+                    }
+                }
 
                 for (int ii = 0; ii < addresses.Length; ii++)
                 {
@@ -955,7 +994,7 @@ namespace Opc.Ua
             {
                 entry = Dns.GetHostEntry(computerName);
             }
-            catch (System.Net.Sockets.SocketException e)
+            catch (SocketException e)
             {
                 Utils.LogError(e, "Unable to check aliases for hostname {0}.", computerName);
             }
@@ -1023,7 +1062,10 @@ namespace Opc.Ua
                     {
                         if (alternateUrl.DnsSafeHost == endpointUrl.DnsSafeHost)
                         {
-                            accessibleAddresses.Add(new BaseAddress() { Url = alternateUrl, ProfileUri = baseAddress.ProfileUri, DiscoveryUrl = alternateUrl });
+                            if (!accessibleAddresses.Any(item => item.Url == alternateUrl))
+                            {
+                                accessibleAddresses.Add(new BaseAddress() { Url = alternateUrl, ProfileUri = baseAddress.ProfileUri, DiscoveryUrl = alternateUrl });
+                            }
                             break;
                         }
                     }
@@ -1035,7 +1077,7 @@ namespace Opc.Ua
                 return accessibleAddresses;
             }
 
-            // client gets all of the endpoints if it using a known variant of the hostname.
+            // client gets all of the endpoints if it using a known variant of the hostname
             if (NormalizeHostname(endpointUrl.DnsSafeHost) == NormalizeHostname("localhost"))
             {
                 return baseAddresses;
@@ -1051,7 +1093,12 @@ namespace Opc.Ua
                 }
             }
 
-            return accessibleAddresses;
+            if (accessibleAddresses.Count != 0)
+            {
+                return accessibleAddresses;
+            }
+
+            return baseAddresses;
         }
 
         /// <summary>
@@ -1062,10 +1109,10 @@ namespace Opc.Ua
             string url = baseAddress.Url.ToString();
 
             if ((baseAddress.ProfileUri == Profiles.HttpsBinaryTransport) &&
-                url.StartsWith(Utils.UriSchemeHttp) &&
-                (!(url.EndsWith("discovery"))))
+                 Utils.IsUriHttpRelatedScheme(url) &&
+                (!url.EndsWith(ConfiguredEndpoint.DiscoverySuffix, StringComparison.OrdinalIgnoreCase)))
             {
-                url += "/discovery";
+                url += ConfiguredEndpoint.DiscoverySuffix;
             }
 
             return url;
@@ -1128,58 +1175,74 @@ namespace Opc.Ua
         {
             EndpointDescriptionCollection translations = new EndpointDescriptionCollection();
 
-            // process endpoints
-            foreach (EndpointDescription endpoint in endpoints)
+            bool matchPort = false;
+            do
             {
-                UriBuilder endpointUrl = new UriBuilder(endpoint.EndpointUrl);
+                // first round with port match
+                matchPort = !matchPort;
 
-                // find matching base address.
-                foreach (BaseAddress baseAddress in baseAddresses)
+                // process endpoints
+                foreach (EndpointDescription endpoint in endpoints)
                 {
-                    bool translateHttpsEndpoint = false;
-                    if (endpoint.TransportProfileUri == Profiles.HttpsBinaryTransport && baseAddress.ProfileUri == Profiles.HttpsBinaryTransport)
+                    UriBuilder endpointUrl = new UriBuilder(endpoint.EndpointUrl);
+
+                    // find matching base address.
+                    foreach (BaseAddress baseAddress in baseAddresses)
                     {
-                        translateHttpsEndpoint = true;
+                        bool translateHttpsEndpoint = false;
+                        if (endpoint.TransportProfileUri == Profiles.HttpsBinaryTransport && baseAddress.ProfileUri == Profiles.HttpsBinaryTransport)
+                        {
+                            translateHttpsEndpoint = true;
+                        }
+
+                        if (endpoint.TransportProfileUri != baseAddress.ProfileUri && !translateHttpsEndpoint)
+                        {
+                            continue;
+                        }
+
+                        if (endpointUrl.Scheme != baseAddress.Url.Scheme)
+                        {
+                            continue;
+                        }
+
+                        // try to match port in the first round, skip in the second round
+                        if (matchPort && endpointUrl.Port != baseAddress.Url.Port)
+                        {
+                            continue;
+                        }
+
+                        EndpointDescription translation = new EndpointDescription();
+
+                        translation.EndpointUrl = baseAddress.Url.ToString();
+
+                        if (endpointUrl.Path.StartsWith(baseAddress.Url.PathAndQuery, StringComparison.Ordinal) &&
+                            endpointUrl.Path.Length > baseAddress.Url.PathAndQuery.Length)
+                        {
+                            string suffix = endpointUrl.Path.Substring(baseAddress.Url.PathAndQuery.Length);
+                            translation.EndpointUrl += suffix;
+                        }
+
+                        translation.ProxyUrl = endpoint.ProxyUrl;
+                        translation.SecurityLevel = endpoint.SecurityLevel;
+                        translation.SecurityMode = endpoint.SecurityMode;
+                        translation.SecurityPolicyUri = endpoint.SecurityPolicyUri;
+                        translation.ServerCertificate = endpoint.ServerCertificate;
+                        translation.TransportProfileUri = endpoint.TransportProfileUri;
+                        translation.UserIdentityTokens = endpoint.UserIdentityTokens;
+                        translation.Server = application;
+
+                        if (!translations.Exists(match =>
+                            match.EndpointUrl.Equals(translation.EndpointUrl, StringComparison.Ordinal) &&
+                            match.SecurityMode == translation.SecurityMode &&
+                            match.SecurityPolicyUri.Equals(translation.SecurityPolicyUri, StringComparison.Ordinal)))
+                        {
+                            translations.Add(translation);
+                        }
                     }
-
-                    if (endpoint.TransportProfileUri != baseAddress.ProfileUri && !translateHttpsEndpoint)
-                    {
-                        continue;
-                    }
-
-                    if (endpointUrl.Scheme != baseAddress.Url.Scheme)
-                    {
-                        continue;
-                    }
-
-                    if (endpointUrl.Port != baseAddress.Url.Port)
-                    {
-                        continue;
-                    }
-
-                    EndpointDescription translation = new EndpointDescription();
-
-                    translation.EndpointUrl = baseAddress.Url.ToString();
-
-                    if (endpointUrl.Path.StartsWith(baseAddress.Url.PathAndQuery, StringComparison.Ordinal) &&
-                        endpointUrl.Path.Length > baseAddress.Url.PathAndQuery.Length)
-                    {
-                        string suffix = endpointUrl.Path.Substring(baseAddress.Url.PathAndQuery.Length);
-                        translation.EndpointUrl += suffix;
-                    }
-
-                    translation.ProxyUrl = endpoint.ProxyUrl;
-                    translation.SecurityLevel = endpoint.SecurityLevel;
-                    translation.SecurityMode = endpoint.SecurityMode;
-                    translation.SecurityPolicyUri = endpoint.SecurityPolicyUri;
-                    translation.ServerCertificate = endpoint.ServerCertificate;
-                    translation.TransportProfileUri = endpoint.TransportProfileUri;
-                    translation.UserIdentityTokens = endpoint.UserIdentityTokens;
-                    translation.Server = application;
-
-                    translations.Add(translation);
                 }
-            }
+            } while (matchPort && translations.Count == 0);
+
+            translations.Sort((ep1, ep2) => string.Compare(ep1.EndpointUrl, ep2.EndpointUrl, StringComparison.Ordinal));
 
             return translations;
         }
@@ -1301,47 +1364,40 @@ namespace Opc.Ua
             }
 
             // load the instance certificate.
-            if (configuration.SecurityConfiguration.ApplicationCertificate != null)
-            {
-                InstanceCertificate = configuration.SecurityConfiguration.ApplicationCertificate.Find(true).GetAwaiter().GetResult();
-            }
+            X509Certificate2 defaultInstanceCertificate = null;
+            InstanceCertificateTypesProvider = new CertificateTypesProvider(configuration);
+            InstanceCertificateTypesProvider.InitializeAsync().GetAwaiter().GetResult();
 
-            if (InstanceCertificate == null)
+            foreach (var securityPolicy in configuration.ServerConfiguration.SecurityPolicies)
             {
-                throw new ServiceResultException(
-                    StatusCodes.BadConfigurationError,
-                    "Server does not have an instance certificate assigned.");
-            }
-
-            if (!InstanceCertificate.HasPrivateKey)
-            {
-                throw new ServiceResultException(
-                    StatusCodes.BadConfigurationError,
-                    "Server does not have access to the private key for the instance certificate.");
-            }
-
-            // load certificate chain.
-            InstanceCertificateChain = new X509Certificate2Collection(InstanceCertificate);
-            var issuers = new List<CertificateIdentifier>();
-            var validationErrors = new Dictionary<X509Certificate2, ServiceResultException>();
-            configuration.CertificateValidator.GetIssuersNoExceptionsOnGetIssuer(InstanceCertificateChain, issuers, validationErrors).Wait();
-
-            if (validationErrors.Count > 0)
-            {
-                Utils.LogWarning("Issuer validation errors ignored on startup:");
-                // only list warning for errors to avoid that the server can not start
-                foreach (var error in validationErrors)
+                if (securityPolicy.SecurityMode == MessageSecurityMode.None)
                 {
-                    if (error.Value != null)
-                    {
-                        Utils.LogCertificate(LogLevel.Warning, "- " + error.Value.Message, error.Key);
-                    }
+                    continue;
                 }
-            }
 
-            for (int i = 0; i < issuers.Count; i++)
-            {
-                InstanceCertificateChain.Add(issuers[i].Certificate);
+                var instanceCertificate = InstanceCertificateTypesProvider.GetInstanceCertificate(securityPolicy.SecurityPolicyUri);
+
+                if (instanceCertificate == null)
+                {
+                    throw new ServiceResultException(
+                        StatusCodes.BadConfigurationError,
+                        "Server does not have an instance certificate assigned.");
+                }
+
+                if (!instanceCertificate.HasPrivateKey)
+                {
+                    throw new ServiceResultException(
+                        StatusCodes.BadConfigurationError,
+                        "Server does not have access to the private key for the instance certificate.");
+                }
+
+                if (defaultInstanceCertificate == null)
+                {
+                    defaultInstanceCertificate = instanceCertificate;
+                }
+
+                // preload chain 
+                InstanceCertificateTypesProvider.LoadCertificateChainAsync(instanceCertificate).GetAwaiter().GetResult();
             }
 
             // use the message context from the configuration to ensure the channels are using the same one.
@@ -1352,7 +1408,10 @@ namespace Opc.Ua
             // assign a unique identifier if none specified.
             if (String.IsNullOrEmpty(configuration.ApplicationUri))
             {
-                configuration.ApplicationUri = X509Utils.GetApplicationUriFromCertificate(InstanceCertificate);
+                var instanceCertificate = InstanceCertificateTypesProvider.GetInstanceCertificate(
+                    configuration.ServerConfiguration.SecurityPolicies[0].SecurityPolicyUri);
+
+                configuration.ApplicationUri = X509Utils.GetApplicationUriFromCertificate(instanceCertificate);
 
                 if (String.IsNullOrEmpty(configuration.ApplicationUri))
                 {
@@ -1368,9 +1427,9 @@ namespace Opc.Ua
             MessageContext.NamespaceUris.Append(configuration.ApplicationUri);
 
             // assign an instance name.
-            if (String.IsNullOrEmpty(configuration.ApplicationName) && InstanceCertificate != null)
+            if (String.IsNullOrEmpty(configuration.ApplicationName) && defaultInstanceCertificate != null)
             {
-                configuration.ApplicationName = InstanceCertificate.GetNameInfo(X509NameType.DnsName, false);
+                configuration.ApplicationName = defaultInstanceCertificate.GetNameInfo(X509NameType.DnsName, false);
             }
 
             // save the certificate validator.
@@ -1671,7 +1730,7 @@ namespace Opc.Ua
             private int m_minThreadCount;
             private int m_maxRequestCount;
 #if THREAD_SCHEDULER
-            private object m_lock = new object();
+            private readonly object m_lock = new object();
             private Queue<IEndpointIncomingRequest> m_queue;
             private int m_totalThreadCount;
 #endif
@@ -1684,8 +1743,7 @@ namespace Opc.Ua
         private object m_messageContext;
         private object m_serverError;
         private object m_certificateValidator;
-        private object m_instanceCertificate;
-        private X509Certificate2Collection m_instanceCertificateChain;
+        private CertificateTypesProvider m_instanceCertificateTypesProvider;
         private object m_serverProperties;
         private object m_configuration;
         private object m_serverDescription;

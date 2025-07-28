@@ -29,11 +29,12 @@
 
 using System.Threading.Tasks;
 using NUnit.Framework;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Opc.Ua.Server.Tests
 {
     /// <summary>
-    /// Test Standard Server stratup.
+    /// Test Standard Server startup.
     /// </summary>
     [TestFixture, Category("Server")]
     [SetCulture("en-us"), SetUICulture("en-us")]

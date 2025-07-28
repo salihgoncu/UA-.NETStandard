@@ -1,5 +1,5 @@
 /* ========================================================================
- * Copyright (c) 2005-2020 The OPC Foundation, Inc. All rights reserved.
+ * Copyright (c) 2005-2024 The OPC Foundation, Inc. All rights reserved.
  *
  * OPC Foundation MIT License 1.00
  * 
@@ -28,6 +28,7 @@
  * ======================================================================*/
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Opc.Ua;
 using Opc.Ua.Server;
@@ -142,6 +143,10 @@ namespace Opc.Ua.Server
                 if (Object.ReferenceEquals(DataChangeMonitoredItems[ii], datachangeItem))
                 {
                     DataChangeMonitoredItems.RemoveAt(ii);
+
+                    // Remove the cached context for the monitored item
+                    m_contextCache.TryRemove(datachangeItem.Id, out _);
+
                     break;
                 }
             }
@@ -253,10 +258,25 @@ namespace Opc.Ua.Server
                 lock (NodeManager.Lock)
                 {
                     // enqueue event
-                    monitoredItem?.QueueEvent(e);
+                    if (context?.SessionId != null && monitoredItem?.Session?.Id?.Identifier != null)
+                    {
+                        if (monitoredItem.Session.Id.Identifier.Equals(context.SessionId.Identifier))
+                        {
+                            monitoredItem?.QueueEvent(e);
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        monitoredItem?.QueueEvent(e);
+                    }
+
                 }
             }
-        }        
+        }
 
         /// <summary>
         /// Called when the state of a Node changes.
@@ -279,6 +299,15 @@ namespace Opc.Ua.Server
 
                     if (monitoredItem.AttributeId == Attributes.Value && (changes & NodeStateChangeMasks.Value) != 0)
                     {
+                        // validate if the monitored item has the required role permissions to read the value
+                        ServiceResult validationResult = NodeManager.ValidateRolePermissions(new OperationContext(monitoredItem), node.NodeId, PermissionType.Read);
+
+                        if (ServiceResult.IsBad(validationResult))
+                        {
+                            // skip if the monitored item does not have permission to read
+                            continue;
+                        }
+
                         QueueValue(context, node, monitoredItem);
                         continue;
                     }
@@ -307,8 +336,15 @@ namespace Opc.Ua.Server
             value.SourceTimestamp = DateTime.MinValue;
             value.StatusCode = StatusCodes.Good;
 
+            ISystemContext contextToUse = context;
+
+            if (context is ServerSystemContext systemContext)
+            {
+                contextToUse = GetOrCreateContext(systemContext, monitoredItem);
+            }
+
             ServiceResult error = node.ReadAttribute(
-                context,
+                contextToUse,
                 monitoredItem.AttributeId,
                 monitoredItem.IndexRange,
                 monitoredItem.DataEncoding,
@@ -323,11 +359,53 @@ namespace Opc.Ua.Server
         }
         #endregion
 
+        #region Private Methods
+        /// <summary>
+        /// Gets or creates a cached context for the monitored item.
+        /// </summary>
+        /// <param name="monitoredItem">The monitored item.</param>
+        /// <param name="context">The system context.</param>
+        /// <returns>The cached or newly created context.</returns>
+        private ServerSystemContext GetOrCreateContext(ServerSystemContext context, MonitoredItem monitoredItem)
+        {
+            uint monitoredItemId = monitoredItem.Id;
+            int currentTicks = HiResClock.TickCount;
+
+            // Check if the context already exists in the cache
+            if (m_contextCache.TryGetValue(monitoredItemId, out var cachedEntry))
+            {
+                // Check if the session or user identity has changed or the entry has expired
+                if (cachedEntry.Context.OperationContext.Session != monitoredItem.Session
+                    || cachedEntry.Context.OperationContext.UserIdentity != monitoredItem.EffectiveIdentity
+                    || (currentTicks - cachedEntry.CreatedAtTicks) > m_cacheLifetimeTicks)
+                {
+                    var updatedContext = context.Copy(new OperationContext(monitoredItem));
+                    m_contextCache[monitoredItemId] = (updatedContext, currentTicks);
+
+                    return updatedContext;
+                }
+                // return cached entry
+                else
+                {
+                    return cachedEntry.Context;
+                }
+            }
+
+            // Create a new context and add it to the cache
+            var newContext = context.Copy(new OperationContext(monitoredItem));
+            m_contextCache.TryAdd(monitoredItemId, (newContext, currentTicks));
+
+            return newContext;
+        }
+        #endregion
+
         #region Private Fields
         private CustomNodeManager2 m_nodeManager;
         private NodeState m_node;
         private List<MonitoredItem> m_dataChangeMonitoredItems;
         private List<IEventMonitoredItem> m_eventMonitoredItems;
+        private readonly ConcurrentDictionary<uint, (ServerSystemContext Context, int CreatedAtTicks)> m_contextCache = new();
+        private readonly int m_cacheLifetimeTicks = (int)TimeSpan.FromMinutes(5).TotalMilliseconds;
         #endregion
     }
 }

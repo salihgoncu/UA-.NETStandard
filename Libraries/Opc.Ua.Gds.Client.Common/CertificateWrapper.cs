@@ -193,7 +193,8 @@ namespace Opc.Ua.Gds.Client
                 if (Certificate != null)
                 {
 #if ECC_SUPPORT
-                    // TODO                    
+                    // TODO  use X509Utils.GetPublicKeySize(Certificate); everywhere
+                                
 #endif
                     return X509Utils.GetRSAPublicKeySize(Certificate);
                 }
@@ -236,7 +237,7 @@ namespace Opc.Ua.Gds.Client
                 {
                     try
                     {
-                        return X509Utils.GetDomainsFromCertficate(Certificate);
+                        return X509Utils.GetDomainsFromCertificate(Certificate);
                     }
                     catch (Exception e)
                     {
@@ -257,6 +258,7 @@ namespace Opc.Ua.Gds.Client
 
         public string ToString(string format, IFormatProvider formatProvider)
         {
+            if (format != null) throw new FormatException(Utils.Format("Invalid format string: '{0}'.", format));
             return SubjectName;
         }
 

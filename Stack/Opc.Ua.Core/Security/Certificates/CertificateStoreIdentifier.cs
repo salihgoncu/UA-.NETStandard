@@ -13,6 +13,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 
 namespace Opc.Ua
 {
@@ -21,6 +22,41 @@ namespace Opc.Ua
     /// </summary>
     public partial class CertificateStoreIdentifier : IFormattable, ICloneable
     {
+        #region Constructors
+        /// <summary>
+        /// Ctor of a certificate store.
+        /// </summary>
+        public CertificateStoreIdentifier()
+        {
+            m_noPrivateKeys = true;
+        }
+
+        /// <summary>
+        /// Ctor of a certificate store.
+        /// </summary>
+        /// <param name="storePath">The store path of the store.</param>
+        /// <param name="noPrivateKeys">If the store supports no private keys.</param>
+        public CertificateStoreIdentifier(string storePath, bool noPrivateKeys = true)
+        {
+            StorePath = storePath;
+            StoreType = DetermineStoreType(storePath);
+            m_noPrivateKeys = noPrivateKeys;
+        }
+
+        /// <summary>
+        /// Ctor of a certificate store.
+        /// </summary>
+        /// <param name="storePath">The store path of the store.</param>
+        /// <param name="storeType">The type of the store.</param>
+        /// <param name="noPrivateKeys">If the store supports no private keys.</param>
+        public CertificateStoreIdentifier(string storePath, string storeType, bool noPrivateKeys = true)
+        {
+            StorePath = storePath;
+            StoreType = storeType;
+            m_noPrivateKeys = noPrivateKeys;
+        }
+        #endregion
+
         #region ICloneable
         /// <inheritdoc/>
         public virtual object Clone()
@@ -52,11 +88,7 @@ namespace Opc.Ua
         /// </returns>
         public string ToString(string format, IFormatProvider formatProvider)
         {
-            if (!String.IsNullOrEmpty(format))
-            {
-                throw new FormatException();
-            }
-
+            if (format != null) throw new FormatException(Utils.Format("Invalid format string: '{0}'.", format));
             return ToString();
         }
         #endregion
@@ -184,13 +216,41 @@ namespace Opc.Ua
         /// Returns an object to access the store containing the certificates.
         /// </summary>
         /// <remarks>
-        /// Opens an instance of the store which contains public keys.
+        /// Opens a cached instance of the store which contains public and private keys.
+        /// To take advantage of the certificate cache use <see cref="ICertificateStore.Close"/>.
+        /// Disposing the store has no functional impact but may
+        /// enforce unnecessary refresh of the cached certificate store.
         /// </remarks>
         /// <returns>A disposable instance of the <see cref="ICertificateStore"/>.</returns>
         public virtual ICertificateStore OpenStore()
         {
-            ICertificateStore store = CreateStore(this.StoreType);
-            store.Open(this.StorePath);
+            ICertificateStore store = m_store;
+
+            // determine if the store configuration changed
+            if (store != null &&
+                (store.StoreType != this.StoreType ||
+                 store.StorePath != this.StorePath ||
+                 store.NoPrivateKeys != this.m_noPrivateKeys))
+            {
+                var previousStore = Interlocked.CompareExchange(ref m_store, null, store);
+                previousStore?.Dispose();
+                store = null;
+            }
+
+            // create and open the store
+            if (store == null && !string.IsNullOrEmpty(this.StoreType) && !string.IsNullOrEmpty(this.StorePath))
+            {
+                store = CreateStore(this.StoreType);
+                var currentStore = Interlocked.CompareExchange(ref m_store, store, null);
+                if (currentStore != null)
+                {
+                    Utils.SilentDispose(store);
+                    store = currentStore;
+                }
+            }
+
+            store?.Open(this.StorePath, m_noPrivateKeys);
+
             return store;
         }
 
@@ -200,13 +260,21 @@ namespace Opc.Ua
         /// <remarks>
         /// Opens an instance of the store which contains public keys.
         /// </remarks>
+        /// <param name="path">location of the store</param>
+        /// <param name="noPrivateKeys">Indicates whether NO private keys are found in the store. Default <c>true</c>.</param>
         /// <returns>A disposable instance of the <see cref="ICertificateStore"/>.</returns>
-        public static ICertificateStore OpenStore(string path)
+        [Obsolete("Use non static OpenStore method to take advantage of caching.")]
+        public static ICertificateStore OpenStore(string path, bool noPrivateKeys)
         {
             ICertificateStore store = CertificateStoreIdentifier.CreateStore(CertificateStoreIdentifier.DetermineStoreType(path));
-            store.Open(path);
+            store.Open(path, noPrivateKeys);
             return store;
         }
+        #endregion
+
+        #region Private Variables
+        private ICertificateStore m_store;
+        private bool m_noPrivateKeys;
         #endregion
     }
 
@@ -234,14 +302,22 @@ namespace Opc.Ua
         #endregion
 
         #region Internal Methods
-        internal static ICertificateStoreType GetCertificateStoreTypeByName(string storeTypeName)
+        /// <summary>
+        /// Returns the registered type for a custom certificate store.
+        /// </summary>
+        /// <param name="storeTypeName"></param>
+        /// <returns></returns>
+        public static ICertificateStoreType GetCertificateStoreTypeByName(string storeTypeName)
         {
             ICertificateStoreType result;
             s_registeredStoreTypes.TryGetValue(storeTypeName, out result);
             return result;
         }
 
-        internal static IReadOnlyCollection<string> RegisteredStoreTypeNames => s_registeredStoreTypes.Keys;
+        /// <summary>
+        /// Returns the collection of registered certificate store keys.
+        /// </summary>
+        public static IReadOnlyCollection<string> RegisteredStoreTypeNames => s_registeredStoreTypes.Keys;
         #endregion 
 
         #region Data Members

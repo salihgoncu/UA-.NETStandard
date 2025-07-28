@@ -2,9 +2,9 @@
 
   <PropertyGroup>
     <DefineConstants>$(DefineConstants);CLIENT_ASYNC</DefineConstants>
-    <AssemblyName>Opc.Ua.Client</AssemblyName>
+    <AssemblyName>$(AssemblyPrefix).Client</AssemblyName>
     <TargetFrameworks>$(LibTargetFrameworks)</TargetFrameworks>
-    <PackageId>OPCFoundation.NetStandard.Opc.Ua.Client</PackageId>
+    <PackageId>$(PackagePrefix).Opc.Ua.Client</PackageId>
     <RootNamespace>Opc.Ua.Client</RootNamespace>
     <Description>OPC UA Client Class Library</Description>
     <IsPackable>true</IsPackable>
@@ -21,10 +21,16 @@
     <PackageId>$(PackageId).Debug</PackageId>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' != 'net6.0' AND '$(TargetFramework)' != 'net7.0'">
-    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="6.0.1" />
-  </ItemGroup>
-
+  <!-- select ECC support -->
+  <Choose>
+    <When Condition="'$(TargetFramework)' == 'net462' OR '$(TargetFramework)' == 'netstandard2.0'">
+    </When>
+    <Otherwise>
+      <PropertyGroup>
+        <DefineConstants>$(DefineConstants);ECC_SUPPORT</DefineConstants>
+      </PropertyGroup>
+    </Otherwise>
+  </Choose>
   <ItemGroup>
     <ProjectReference Include="..\..\Stack\Opc.Ua.Core\Opc.Ua.Core.csproj" />
     <ProjectReference Include="..\Opc.Ua.Configuration\Opc.Ua.Configuration.csproj" />

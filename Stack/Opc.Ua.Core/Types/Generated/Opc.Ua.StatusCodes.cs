@@ -1,5 +1,5 @@
 /* ========================================================================
- * Copyright (c) 2005-2022 The OPC Foundation, Inc. All rights reserved.
+ * Copyright (c) 2005-2024 The OPC Foundation, Inc. All rights reserved.
  *
  * OPC Foundation MIT License 1.00
  * 
@@ -85,7 +85,7 @@ namespace Opc.Ua
         public const uint BadRequestTooLarge = 0x80B80000;
 
         /// <summary>
-        /// The response message size exceeds limits set by the client.
+        /// The response message size exceeds limits set by the client or server.
         /// </summary>
         public const uint BadResponseTooLarge = 0x80B90000;
 
@@ -520,6 +520,11 @@ namespace Opc.Ua
         public const uint BadLocaleNotSupported = 0x80ED0000;
 
         /// <summary>
+        /// The variable has no default value and no initial value.
+        /// </summary>
+        public const uint BadNoValue = 0x80F00000;
+
+        /// <summary>
         /// The ServerUri is not a valid URI.
         /// </summary>
         public const uint BadServerUriInvalid = 0x804F0000;
@@ -537,7 +542,7 @@ namespace Opc.Ua
         /// <summary>
         /// The semaphore file specified by the client is not valid.
         /// </summary>
-        public const uint BadSempahoreFileMissing = 0x80520000;
+        public const uint BadSemaphoreFileMissing = 0x80520000;
 
         /// <summary>
         /// The security token request type is not valid.
@@ -1128,6 +1133,11 @@ namespace Opc.Ua
         /// The operation is not allowed because a transaction is in progress.
         /// </summary>
         public const uint BadTransactionPending = 0x80E80000;
+
+        /// <summary>
+        /// The operation failed and all changes which were part of the transaction are rolled back.
+        /// </summary>
+        public const uint BadTransactionFailed = 0x80F10000;
 
         /// <summary>
         /// The device identity needs a ticket before it can be accepted.

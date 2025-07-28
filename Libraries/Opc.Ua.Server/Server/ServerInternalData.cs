@@ -31,6 +31,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography.X509Certificates;
+using Opc.Ua.Security.Certificates;
 
 #pragma warning disable 0618
 
@@ -65,13 +66,13 @@ namespace Opc.Ua.Server
         /// <param name="configuration">The configuration.</param>
         /// <param name="messageContext">The message context.</param>
         /// <param name="certificateValidator">The certificate validator.</param>
-        /// <param name="instanceCertificate">The instance certificate.</param>
+        /// <param name="instanceCertificateProvider">The certificate type provider.</param>
         public ServerInternalData(
             ServerProperties serverDescription,
             ApplicationConfiguration configuration,
             IServiceMessageContext messageContext,
             CertificateValidator certificateValidator,
-            X509Certificate2 instanceCertificate)
+            CertificateTypesProvider instanceCertificateProvider)
         {
             m_serverDescription = serverDescription;
             m_configuration = configuration;
@@ -127,6 +128,7 @@ namespace Opc.Ua.Server
                 Utils.SilentDispose(m_nodeManager);
                 Utils.SilentDispose(m_sessionManager);
                 Utils.SilentDispose(m_subscriptionManager);
+                Utils.SilentDispose(m_monitoredItemQueueFactory);
             }
         }
         #endregion
@@ -191,6 +193,26 @@ namespace Opc.Ua.Server
         {
             m_sessionManager = sessionManager;
             m_subscriptionManager = subscriptionManager;
+        }
+
+        /// <summary>
+        /// Stores the MonitoredItemQueueFactory in the datastore.
+        /// </summary>
+        /// <param name="monitoredItemQueueFactory">The MonitoredItemQueueFactory.</param>
+        public void SetMonitoredItemQueueFactory(
+            IMonitoredItemQueueFactory monitoredItemQueueFactory)
+        {
+            m_monitoredItemQueueFactory = monitoredItemQueueFactory;
+        }
+
+        /// <summary>
+        /// Stores the Subscriptionstore in the datastore.
+        /// </summary>
+        /// <param name="subscriptionStore">The subscriptionstore.</param>
+        public void SetSubscriptionStore(
+            ISubscriptionStore subscriptionStore)
+        {
+            m_subscriptionStore = subscriptionStore;
         }
         #endregion
 
@@ -348,6 +370,22 @@ namespace Opc.Ua.Server
 
 
         /// <summary>
+        /// The factory for durable monitored item queues
+        /// </summary>
+        public IMonitoredItemQueueFactory MonitoredItemQueueFactory
+        {
+            get { return m_monitoredItemQueueFactory; }
+        }
+
+        /// <summary>
+        /// The store to persist and retrieve subscriptions
+        /// </summary>
+        public ISubscriptionStore SubscriptionStore
+        {
+            get { return m_subscriptionStore; }
+        }
+
+        /// <summary>
         /// Returns the status object for the server.
         /// </summary>
         /// <value>The status.</value>
@@ -448,7 +486,8 @@ namespace Opc.Ua.Server
                     if (m_serverStatus.Value.State == ServerState.Running)
                         return true;
 
-                    if (m_serverStatus.Value.State == ServerState.Shutdown && m_serverStatus.Value.SecondsTillShutdown > 0)
+                    if (m_serverStatus.Value.State == ServerState.Shutdown &&
+                        m_serverStatus.Value.SecondsTillShutdown > 0)
                         return true;
 
                     return false;
@@ -743,6 +782,13 @@ namespace Opc.Ua.Server
                 DateTime now = DateTime.UtcNow;
                 m_serverStatus.Timestamp = now;
                 m_serverStatus.Value.CurrentTime = now;
+                // update other timestamps in NodeState objects which are used to derive the source timestamp
+                if (variable is ServerStatusValue serverStatusValue &&
+                    serverStatusValue.Variable is ServerStatusState serverStatusState)
+                {
+                    serverStatusState.Timestamp = now;
+                    serverStatusState.CurrentTime.Timestamp = now;
+                }
             }
         }
 
@@ -875,8 +921,10 @@ namespace Opc.Ua.Server
         private EventManager m_eventManager;
         private SessionManager m_sessionManager;
         private SubscriptionManager m_subscriptionManager;
+        private IMonitoredItemQueueFactory m_monitoredItemQueueFactory;
+        private ISubscriptionStore m_subscriptionStore;
 
-        private object m_dataLock = new object();
+        private readonly object m_dataLock = new object();
         private ServerObjectState m_serverObject;
         private ServerStatusValue m_serverStatus;
         private bool m_auditing;

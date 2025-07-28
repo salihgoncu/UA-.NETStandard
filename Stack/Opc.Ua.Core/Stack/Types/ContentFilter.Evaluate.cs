@@ -24,6 +24,14 @@ namespace Opc.Ua
     /// </summary>
     public partial class ContentFilter
     {
+        #region  Public Static Properties
+        /// <summary>
+        /// Set the default StringComparison to use when evaluating the Equals operator.
+        /// This property is meant to be set as a config setting and not set / reset on a per context basis, to ensure consistency
+        /// </summary>
+        public static StringComparison EqualsOperatorDefaultStringComparison { get; set; } = StringComparison.Ordinal;
+        #endregion
+
         #region Public functions
         /// <summary>
         /// Evaluates the first element in the ContentFilter. If the first or any 
@@ -175,9 +183,8 @@ namespace Opc.Ua
                     throw new ServiceResultException(StatusCodes.BadUnexpectedError, "FilterOperand is null.");
                 }
 
-                FilterOperand operand = extension.Body as FilterOperand;
 
-                if (operand == null)
+                if (!(extension.Body is FilterOperand operand))
                 {
                     throw new ServiceResultException(StatusCodes.BadUnexpectedError, "FilterOperand is not supported.");
                 }
@@ -224,17 +231,15 @@ namespace Opc.Ua
         private object GetValue(FilterContext context, FilterOperand operand, IFilterTarget target)
         {
             // return the contained value for literal operands.
-            LiteralOperand literal = operand as LiteralOperand;
 
-            if (literal != null)
+            if (operand is LiteralOperand literal)
             {
                 return literal.Value.Value;
             }
 
             // must query the filter target for simple attribute operands.
-            SimpleAttributeOperand simpleAttribute = operand as SimpleAttributeOperand;
 
-            if (simpleAttribute != null)
+            if (operand is SimpleAttributeOperand simpleAttribute)
             {
                 return target.GetAttributeValue(
                     context,
@@ -245,14 +250,12 @@ namespace Opc.Ua
             }
 
             // must query the filter target for attribute operands.
-            AttributeOperand attribute = operand as AttributeOperand;
 
-            if (attribute != null)
+            if (operand is AttributeOperand attribute)
             {
                 // AttributeOperands only supported in advanced filter targets.
-                IAdvancedFilterTarget advancedTarget = target as IAdvancedFilterTarget;
 
-                if (advancedTarget == null)
+                if (!(target is IAdvancedFilterTarget advancedTarget))
                 {
                     return false;
                 }
@@ -266,9 +269,8 @@ namespace Opc.Ua
             }
 
             // recursively evaluate element operands.
-            ElementOperand element = operand as ElementOperand;
 
-            if (element != null)
+            if (operand is ElementOperand element)
             {
                 return Evaluate(context, target, (int)element.Index);
             }
@@ -413,14 +415,19 @@ namespace Opc.Ua
                 return value1 == null && value2 == null;
             }
 
-            if (value1 is DBNull || value2 is DBNull)
-            {
-                return value1 is DBNull && value2 is DBNull;
-            }
-
             if (value1.GetType() != value2.GetType())
             {
                 return false;
+            }
+
+            //check for strings
+            if (value1 is string string1)
+            {
+                if (value2 is not string string2)
+                {
+                    return false;
+                }
+                return string1.Equals(string2, EqualsOperatorDefaultStringComparison);
             }
 
             return Utils.IsEqual(value1, value2);
@@ -437,6 +444,25 @@ namespace Opc.Ua
         {
             string expression = pattern;
 
+#if NET8_0_OR_GREATER
+            // 1) Suppress unused regular expression characters with special meaning
+            // the following characters have special meaning in a regular expression []\^$.|?*+()
+            // the following characters are OPC UA wildcards %_\[]!
+            // The specail meaning of the regular expression characters not coincident with the
+            // OPC UA wildcards must be suppressed so as not to interfere with matching.
+            // preceed all '^', '$', '.', '|', '?', '*', '+', '(', ')' with a '\'
+            expression = SuppressUnusedCharacters().Replace(expression, "\\$1");
+
+            // 2) Replace all OPC UA wildcards with their regular expression equivalents
+            // replace all '%' with ".+", except "\%"
+            expression = ReplaceWildcards().Replace(expression, ".*");
+
+            // replace all '_' with '.', except "\_"
+            expression = ReplaceUnderscores().Replace(expression, ".");
+
+            // replace all "[!" with "[^", except "\[!"
+            expression = ReplaceBrackets().Replace(expression, "[^");
+#else
             // 1) Suppress unused regular expression characters with special meaning
             // the following characters have special meaning in a regular expression []\^$.|?*+()
             // the following characters are OPC UA wildcards %_\[]!
@@ -454,6 +480,7 @@ namespace Opc.Ua
 
             // replace all "[!" with "[^", except "\[!"
             expression = Regex.Replace(expression, "(?<!\\\\)(\\[!)", "[^", RegexOptions.Compiled);
+#endif
 
             return Regex.IsMatch(target, expression);
         }
@@ -483,9 +510,8 @@ namespace Opc.Ua
         private static object ToBoolean(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 bool[] output = new bool[array.Length];
 
@@ -532,9 +558,8 @@ namespace Opc.Ua
         private static object ToSByte(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 sbyte[] output = new sbyte[array.Length];
 
@@ -581,9 +606,8 @@ namespace Opc.Ua
         private static object ToByte(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 throw new NotImplementedException("Arrays of Byte not supported. Use ByteString instead.");
             }
@@ -623,9 +647,8 @@ namespace Opc.Ua
         private static object ToInt16(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 short[] output = new short[array.Length];
 
@@ -672,9 +695,8 @@ namespace Opc.Ua
         private static object ToUInt16(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 ushort[] output = new ushort[array.Length];
 
@@ -727,9 +749,8 @@ namespace Opc.Ua
         private static object ToInt32(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 int[] output = new int[array.Length];
 
@@ -781,9 +802,8 @@ namespace Opc.Ua
         private static object ToUInt32(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 uint[] output = new uint[array.Length];
 
@@ -835,9 +855,8 @@ namespace Opc.Ua
         private static object ToInt64(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 long[] output = new long[array.Length];
 
@@ -889,9 +908,8 @@ namespace Opc.Ua
         private static object ToUInt64(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 ulong[] output = new ulong[array.Length];
 
@@ -943,9 +961,8 @@ namespace Opc.Ua
         private static object ToFloat(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 float[] output = new float[array.Length];
 
@@ -992,9 +1009,8 @@ namespace Opc.Ua
         private static object ToDouble(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 double[] output = new double[array.Length];
 
@@ -1041,9 +1057,8 @@ namespace Opc.Ua
         private static object ToString(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 String[] output = new String[array.Length];
 
@@ -1159,9 +1174,8 @@ namespace Opc.Ua
         private static object ToDateTime(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 DateTime[] output = new DateTime[array.Length];
 
@@ -1197,9 +1211,8 @@ namespace Opc.Ua
         private static object ToGuid(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 Guid[] output = new Guid[array.Length];
 
@@ -1240,9 +1253,8 @@ namespace Opc.Ua
         private static object ToByteString(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 byte[][] output = new byte[array.Length][];
 
@@ -1278,9 +1290,8 @@ namespace Opc.Ua
         private static object ToNodeId(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 NodeId[] output = new NodeId[array.Length];
 
@@ -1321,9 +1332,8 @@ namespace Opc.Ua
         private static object ToExpandedNodeId(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 ExpandedNodeId[] output = new ExpandedNodeId[array.Length];
 
@@ -1364,9 +1374,8 @@ namespace Opc.Ua
         private static object ToStatusCode(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 StatusCode[] output = new StatusCode[array.Length];
 
@@ -1424,9 +1433,8 @@ namespace Opc.Ua
         private static object ToQualifiedName(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 QualifiedName[] output = new QualifiedName[array.Length];
 
@@ -1462,9 +1470,8 @@ namespace Opc.Ua
         private static object ToLocalizedText(object value, BuiltInType sourceType)
         {
             // check for array conversions.
-            Array array = value as Array;
 
-            if (array != null)
+            if (value is Array array)
             {
                 LocalizedText[] output = new LocalizedText[array.Length];
 
@@ -1963,9 +1970,8 @@ namespace Opc.Ua
         private bool InView(FilterContext context, IFilterTarget target, ContentFilterElement element)
         {
             // views only supported in advanced filter targets.
-            IAdvancedFilterTarget advancedFilter = target as IAdvancedFilterTarget;
 
-            if (advancedFilter == null)
+            if (!(target is IAdvancedFilterTarget advancedFilter))
             {
                 return false;
             }
@@ -2005,9 +2011,8 @@ namespace Opc.Ua
         private bool RelatedTo(FilterContext context, IFilterTarget target, ContentFilterElement element, NodeId intermediateNodeId)
         {
             // RelatedTo only supported in advanced filter targets.
-            IAdvancedFilterTarget advancedTarget = target as IAdvancedFilterTarget;
 
-            if (advancedTarget == null)
+            if (!(target is IAdvancedFilterTarget advancedTarget))
             {
                 return false;
             }
@@ -2078,9 +2083,8 @@ namespace Opc.Ua
             NodeId targetTypeId = null;
 
             // check if elements are chained.
-            ElementOperand chainedOperand = operands[1] as ElementOperand;
 
-            if (chainedOperand != null)
+            if (operands[1] is ElementOperand chainedOperand)
             {
                 if (/*chainedOperand.Index < 0 ||*/ chainedOperand.Index >= Elements.Count)
                 {
@@ -2258,7 +2262,19 @@ namespace Opc.Ua
             return null;
         }
 
+#if NET8_0_OR_GREATER
+        [GeneratedRegex("([\\^\\$\\.\\|\\?\\*\\+\\(\\)])", RegexOptions.Compiled)]
+        private static partial Regex SuppressUnusedCharacters();
 
+        [GeneratedRegex("(?<!\\\\)%", RegexOptions.Compiled)]
+        private static partial Regex ReplaceWildcards();
+
+        [GeneratedRegex("(?<!\\\\)_", RegexOptions.Compiled)]
+        private static partial Regex ReplaceUnderscores();
+
+        [GeneratedRegex("(?<!\\\\)(\\[!)", RegexOptions.Compiled)]
+        private static partial Regex ReplaceBrackets();
+#endif
         #endregion
     }
 }

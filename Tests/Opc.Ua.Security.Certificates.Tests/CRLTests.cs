@@ -29,13 +29,14 @@
 
 
 using System;
-using System.Collections.Generic;
-using System.IO;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using NUnit.Framework;
 using Opc.Ua.Tests;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Opc.Ua.Security.Certificates.Tests
 {
@@ -44,6 +45,7 @@ namespace Opc.Ua.Security.Certificates.Tests
     /// </summary>
     [TestFixture, Category("CRL")]
     [Parallelizable]
+    [TestFixtureSource(nameof(FixtureArgs))]
     [SetCulture("en-us")]
     public class CRLTests
     {
@@ -60,14 +62,52 @@ namespace Opc.Ua.Security.Certificates.Tests
 
         #region Test Setup
         /// <summary>
-        /// Set up a Global Discovery Server and Client instance and connect the session
+        /// CertificateTypes to run the Test with
+        /// </summary>
+        public static readonly object[] FixtureArgs = {
+            new object [] { nameof(Opc.Ua.ObjectTypeIds.RsaSha256ApplicationCertificateType), Opc.Ua.ObjectTypeIds.RsaSha256ApplicationCertificateType},
+            new object [] { nameof(Opc.Ua.ObjectTypeIds.EccNistP256ApplicationCertificateType), Opc.Ua.ObjectTypeIds.EccNistP256ApplicationCertificateType},
+            new object [] { nameof(Opc.Ua.ObjectTypeIds.EccNistP384ApplicationCertificateType), Opc.Ua.ObjectTypeIds.EccNistP384ApplicationCertificateType },
+            new object [] { nameof(Opc.Ua.ObjectTypeIds.EccBrainpoolP256r1ApplicationCertificateType), Opc.Ua.ObjectTypeIds.EccBrainpoolP256r1ApplicationCertificateType },
+            new object [] { nameof(Opc.Ua.ObjectTypeIds.EccBrainpoolP384r1ApplicationCertificateType), Opc.Ua.ObjectTypeIds.EccBrainpoolP384r1ApplicationCertificateType },
+        };
+
+        public CRLTests(string certificateTypeString, NodeId certificateType)
+        {
+            if (!Utils.IsSupportedCertificateType(certificateType))
+            {
+                Assert.Ignore($"Certificate type {certificateTypeString} is not supported on this platform.");
+            }
+
+            m_certificateType = certificateType;
+        }
+        /// <summary>
+        /// Set up a an issuer cert to run the tests with
         /// </summary>
         [OneTimeSetUp]
         protected void OneTimeSetUp()
         {
-            m_issuerCert = CertificateBuilder.Create("CN=Root CA, O=OPC Foundation")
+#if ECC_SUPPORT
+            ECCurve? curve = EccUtils.GetCurveFromCertificateTypeId(m_certificateType);
+
+            if (curve != null)
+            {
+                m_issuerCert = CertificateBuilder.Create("CN=Root CA, O=OPC Foundation")
                 .SetCAConstraint()
-                .CreateForRSA();
+                .SetECCurve(curve.Value)
+                .CreateForECDsa();
+               
+            }
+            // RSA Certificate
+            else
+            {
+#endif
+                m_issuerCert = CertificateBuilder.Create("CN=Root CA, O=OPC Foundation")
+               .SetCAConstraint()
+               .CreateForRSA();
+#if ECC_SUPPORT
+            }
+#endif
         }
 
         /// <summary>
@@ -77,7 +117,7 @@ namespace Opc.Ua.Security.Certificates.Tests
         protected void OneTimeTearDown()
         {
         }
-        #endregion
+#endregion
 
         #region Test Methods
         /// <summary>
@@ -120,26 +160,42 @@ namespace Opc.Ua.Security.Certificates.Tests
         /// Validate the full CRL encoder and decoder pass.
         /// </summary>
         [Theory]
-        public void CrlBuilderTest(KeyHashPair keyHashPair)
+        public void CrlBuilderTest(bool empty, bool noExtensions, KeyHashPair keyHashPair)
         {
             var crlBuilder = CrlBuilder.Create(m_issuerCert.SubjectName, keyHashPair.HashAlgorithmName)
                 .SetThisUpdate(DateTime.UtcNow.Date)
                 .SetNextUpdate(DateTime.UtcNow.Date.AddDays(30));
 
-            // little endian byte array as serial number?
             byte[] serial = new byte[] { 4, 5, 6, 7 };
-            var revokedarray = new RevokedCertificate(serial) {
-                RevocationDate = DateTime.UtcNow.AddDays(30)
-            };
-            crlBuilder.RevokedCertificates.Add(revokedarray);
             string serstring = "123456789101";
-            var revokedstring = new RevokedCertificate(serstring);
-            crlBuilder.RevokedCertificates.Add(revokedstring);
+            if (!empty)
+            {
+                // little endian byte array as serial number?
+                var revokedarray = new RevokedCertificate(serial) {
+                    RevocationDate = DateTime.UtcNow.AddDays(30)
+                };
+                crlBuilder.RevokedCertificates.Add(revokedarray);
+                var revokedstring = new RevokedCertificate(serstring);
+                crlBuilder.RevokedCertificates.Add(revokedstring);
+            }
 
-            crlBuilder.CrlExtensions.Add(X509Extensions.BuildCRLNumber(1111));
-            crlBuilder.CrlExtensions.Add(X509Extensions.BuildAuthorityKeyIdentifier(m_issuerCert));
+            if (!noExtensions)
+            {
+                crlBuilder.CrlExtensions.Add(X509Extensions.BuildCRLNumber(1111));
+                crlBuilder.CrlExtensions.Add(X509Extensions.BuildAuthorityKeyIdentifier(m_issuerCert));
+            }
+            IX509CRL i509Crl;
+#if ECC_SUPPORT
+            if (X509PfxUtils.IsECDsaSignature(m_issuerCert))
+            {
 
-            var i509Crl = crlBuilder.CreateForRSA(m_issuerCert);
+                i509Crl = crlBuilder.CreateForECDsa(m_issuerCert);
+            }
+            else
+#endif
+            {
+                i509Crl = crlBuilder.CreateForRSA(m_issuerCert);
+            }
             X509CRL x509Crl = new X509CRL(i509Crl.RawData);
             Assert.NotNull(x509Crl);
             Assert.NotNull(x509Crl.CrlExtensions);
@@ -147,11 +203,28 @@ namespace Opc.Ua.Security.Certificates.Tests
             Assert.AreEqual(m_issuerCert.SubjectName.RawData, x509Crl.IssuerName.RawData);
             Assert.AreEqual(crlBuilder.ThisUpdate, x509Crl.ThisUpdate);
             Assert.AreEqual(crlBuilder.NextUpdate, x509Crl.NextUpdate);
-            Assert.AreEqual(2, x509Crl.RevokedCertificates.Count);
-            Assert.AreEqual(serial, x509Crl.RevokedCertificates[0].UserCertificate);
-            Assert.AreEqual(serstring, x509Crl.RevokedCertificates[1].SerialNumber);
-            Assert.AreEqual(2, x509Crl.CrlExtensions.Count);
-            using (var issuerPubKey = new X509Certificate2(m_issuerCert.RawData))
+
+            if (empty)
+            {
+                Assert.AreEqual(0, x509Crl.RevokedCertificates.Count);
+            }
+            else
+            {
+                Assert.AreEqual(2, x509Crl.RevokedCertificates.Count);
+                Assert.AreEqual(serial, x509Crl.RevokedCertificates[0].UserCertificate);
+                Assert.AreEqual(serstring, x509Crl.RevokedCertificates[1].SerialNumber);
+            }
+
+            if (noExtensions)
+            {
+                Assert.AreEqual(0, x509Crl.CrlExtensions.Count);
+            }
+            else
+            {
+                Assert.AreEqual(2, x509Crl.CrlExtensions.Count);
+            }
+
+            using (var issuerPubKey = X509CertificateLoader.LoadCertificate(m_issuerCert.RawData))
             {
                 Assert.True(x509Crl.VerifySignature(issuerPubKey, true));
             }
@@ -180,10 +253,23 @@ namespace Opc.Ua.Security.Certificates.Tests
             crlBuilder.CrlExtensions.Add(X509Extensions.BuildAuthorityKeyIdentifier(m_issuerCert));
 
             IX509CRL ix509Crl;
-            using (RSA rsa = m_issuerCert.GetRSAPrivateKey())
+#if ECC_SUPPORT
+            if (X509PfxUtils.IsECDsaSignature(m_issuerCert))
             {
-                X509SignatureGenerator generator = X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1);
-                ix509Crl = crlBuilder.CreateSignature(generator);
+                using (ECDsa ecdsa = m_issuerCert.GetECDsaPrivateKey())
+                {
+                    X509SignatureGenerator generator = X509SignatureGenerator.CreateForECDsa(ecdsa);
+                    ix509Crl = crlBuilder.CreateSignature(generator);
+                }
+            }
+            else
+#endif
+            {
+                using (RSA rsa = m_issuerCert.GetRSAPrivateKey())
+                {
+                    X509SignatureGenerator generator = X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1);
+                    ix509Crl = crlBuilder.CreateSignature(generator);
+                }
             }
             X509CRL x509Crl = new X509CRL(ix509Crl);
             Assert.NotNull(x509Crl);
@@ -196,7 +282,7 @@ namespace Opc.Ua.Security.Certificates.Tests
             Assert.AreEqual(serial, x509Crl.RevokedCertificates[0].UserCertificate);
             Assert.AreEqual(serstring, x509Crl.RevokedCertificates[1].SerialNumber);
             Assert.AreEqual(2, x509Crl.CrlExtensions.Count);
-            using (var issuerPubKey = new X509Certificate2(m_issuerCert.RawData))
+            using (var issuerPubKey = X509CertificateLoader.LoadCertificate(m_issuerCert.RawData))
             {
                 Assert.True(x509Crl.VerifySignature(issuerPubKey, true));
             }
@@ -246,7 +332,7 @@ namespace Opc.Ua.Security.Certificates.Tests
             Assert.NotNull(crlEncoded);
             ValidateCRL(serial, serstring, hash, crlBuilder, crlEncoded);
         }
-        #endregion
+#endregion
 
         #region Private Methods
         private string WriteCRL(X509CRL x509Crl)
@@ -258,7 +344,7 @@ namespace Opc.Ua.Security.Certificates.Tests
             stringBuilder.AppendLine("RevokedCertificates:");
             foreach (var revokedCert in x509Crl.RevokedCertificates)
             {
-                stringBuilder.AppendFormat("{0:20}", revokedCert.SerialNumber).Append(", ").Append(revokedCert.RevocationDate).Append(", ");
+                stringBuilder.AppendFormat(CultureInfo.InvariantCulture, "{0:20}", revokedCert.SerialNumber).Append(", ").Append(revokedCert.RevocationDate).Append(", ");
                 foreach (var entryExt in revokedCert.CrlEntryExtensions)
                 {
                     stringBuilder.Append(entryExt.Format(false)).Append(' ');
@@ -299,6 +385,7 @@ namespace Opc.Ua.Security.Certificates.Tests
 
         #region Private Fields
         X509Certificate2 m_issuerCert;
+        private NodeId m_certificateType;
         #endregion
     }
 

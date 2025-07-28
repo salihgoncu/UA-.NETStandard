@@ -94,12 +94,9 @@ namespace Opc.Ua.Client.ComplexTypes
         {
             encoder.PushNamespace(XmlNamespace);
 
-            string fieldName = null;
-            if (encoder.UseReversibleEncoding)
-            {
-                encoder.WriteUInt32("SwitchField", m_switchField);
-                fieldName = "Value";
-            }
+            // the encoder may return an override for the field name
+            // e.g. to support reversible JSON encoding
+            encoder.WriteSwitchField(m_switchField, out string fieldName);
 
             if (m_switchField != 0)
             {
@@ -114,11 +111,17 @@ namespace Opc.Ua.Client.ComplexTypes
                     }
                     unionSelector++;
                 }
+
+                if (encoder.UseReversibleEncoding)
+                {
+                    fieldName = fieldName ?? unionProperty.Name;
+                }
+
                 EncodeProperty(encoder, fieldName, unionProperty);
             }
             else if (!encoder.UseReversibleEncoding)
             {
-                encoder.WriteString(null, "null");
+                encoder.WriteString(null, null);
             }
 
             encoder.PopNamespace();
@@ -129,32 +132,63 @@ namespace Opc.Ua.Client.ComplexTypes
         {
             decoder.PushNamespace(XmlNamespace);
 
-            m_switchField = decoder.ReadUInt32("SwitchField");
+            string fieldName = "Value";
+            UInt32 unionSelector = 0;
 
-            UInt32 unionSelector = m_switchField;
+            unionSelector = decoder.ReadSwitchField(null, out var newFieldName);
+
+            // maybe the switch field is implicitly defined by the JSON keys
+            bool isJsonDecoder = decoder.EncodingType == EncodingType.Json;
+            if (unionSelector == 0 && isJsonDecoder)
+            {
+                var fields = new StringCollection();
+                foreach (var property in GetPropertyEnumerator())
+                {
+                    if (property.IsOptional)
+                    {
+                        fields.Add(property.Name);
+                    }
+                }
+
+                unionSelector = decoder.ReadSwitchField(fields, out var newFeildName);
+            }
+
+            m_switchField = unionSelector;
             if (unionSelector > 0)
             {
                 foreach (var property in GetPropertyEnumerator())
                 {
                     if (--unionSelector == 0)
                     {
-                        DecodeProperty(decoder, "Value", property);
+                        fieldName = property.Name;
+
+                        if (isJsonDecoder &&
+                            decoder is IJsonDecoder jsonDecoder &&
+                            jsonDecoder.ReadField("Value", out _))
+                        {
+                            DecodeProperty(jsonDecoder, "Value", property);
+                        }
+                        else
+                        {
+                            DecodeProperty(decoder, fieldName, property);
+                        }
                         break;
                     }
                 }
             }
+
             decoder.PopNamespace();
         }
 
         /// <inheritdoc/>
-        public override bool IsEqual(IEncodeable equalValue)
+        public override bool IsEqual(IEncodeable encodeable)
         {
-            if (Object.ReferenceEquals(this, equalValue))
+            if (Object.ReferenceEquals(this, encodeable))
             {
                 return true;
             }
 
-            if (!(equalValue is UnionComplexType valueBaseType))
+            if (!(encodeable is UnionComplexType valueBaseType))
             {
                 return false;
             }
@@ -218,7 +252,7 @@ namespace Opc.Ua.Client.ComplexTypes
 
                 if (!NodeId.IsNull(this.TypeId))
                 {
-                    return String.Format(formatProvider, "{{{0}}}", this.TypeId);
+                    return string.Format(formatProvider, "{{{0}}}", this.TypeId);
                 }
 
                 return "(null)";

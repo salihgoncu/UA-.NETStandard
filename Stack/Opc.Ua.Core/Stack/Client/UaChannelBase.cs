@@ -198,6 +198,13 @@ namespace Opc.Ua
         /// </summary>
         public ChannelToken CurrentToken => null;
 
+        /// <inheritdoc/>
+        public event ChannelTokenActivatedEventHandler OnTokenActivated
+        {
+            add { }
+            remove { }
+        }
+
         /// <summary>
         /// Gets or sets the default timeout for requests send via the channel.
         /// </summary>
@@ -357,6 +364,20 @@ namespace Opc.Ua
         }
 
         /// <summary>
+        /// Closes any existing secure channel.
+        /// </summary>
+        public async Task CloseAsync(CancellationToken ct)
+        {
+            if (m_uaBypassChannel != null)
+            {
+                await m_uaBypassChannel.CloseAsync(ct).ConfigureAwait(false);
+                return;
+            }
+
+            CloseChannel();
+        }
+
+        /// <summary>
         /// Begins an asynchronous operation to close the secure channel.
         /// </summary>
         public IAsyncResult BeginClose(AsyncCallback callback, object callbackData)
@@ -437,6 +458,19 @@ namespace Opc.Ua
             InvokeServiceResponseMessage responseMessage = EndInvokeService(result);
             return (IServiceResponse)BinaryDecoder.DecodeMessage(responseMessage.InvokeServiceResponse, null, m_messageContext);
 #endif
+        }
+
+        /// <summary>
+        /// Completes an asynchronous operation to send a request over the secure channel.
+        /// </summary>
+        public Task<IServiceResponse> EndSendRequestAsync(IAsyncResult result, CancellationToken ct)
+        {
+            if (m_uaBypassChannel != null)
+            {
+                return m_uaBypassChannel.EndSendRequestAsync(result, ct);
+            }
+
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -658,7 +692,7 @@ namespace Opc.Ua
         #endregion
         }
         #endregion
-        
+
         /// <summary>
         /// Processes the request.
         /// </summary>
@@ -978,9 +1012,7 @@ namespace Opc.Ua
             /// <returns>The oject that </returns>
             public static new UaChannelAsyncResult WaitForComplete(IAsyncResult ar)
             {
-                UaChannelAsyncResult asyncResult = ar as UaChannelAsyncResult;
-
-                if (asyncResult == null)
+                if (!(ar is UaChannelAsyncResult asyncResult))
                 {
                     throw new ArgumentException("End called with an invalid IAsyncResult object.", nameof(ar));
                 }

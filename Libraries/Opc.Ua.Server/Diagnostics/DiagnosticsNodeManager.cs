@@ -29,6 +29,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -65,6 +66,7 @@ namespace Opc.Ua.Server
             m_doScanBusy = false;
             m_sampledItems = new List<MonitoredItem>();
             m_minimumSamplingInterval = 100;
+            m_durableSubscriptionsEnabled = configuration.ServerConfiguration?.DurableSubscriptionsEnabled ?? false;
         }
         #endregion
 
@@ -172,36 +174,38 @@ namespace Opc.Ua.Server
                     }
                 }
 
-#if SUPPORT_DURABLE_SUBSCRIPTION
-                // hook up the server SetSubscriptionDurable method.
-                SetSubscriptionDurableMethodState setSubscriptionDurable= (SetSubscriptionDurableMethodState)FindPredefinedNode(
-                    MethodIds.Server_SetSubscriptionDurable,
-                    typeof(SetSubscriptionDurableMethodState));
-
-                if (setSubscriptionDurable != null)
+                if (m_durableSubscriptionsEnabled)
                 {
-                    setSubscriptionDurable.OnCall = OnSetSubscriptionDurable;
-                }
-#else
-                // Subscription Durable mode not supported by the server.
-                ServerObjectState serverObject = (ServerObjectState)FindPredefinedNode(
-                    ObjectIds.Server,
-                    typeof(ServerObjectState));
+                    // hook up the server SetSubscriptionDurable method.
+                    SetSubscriptionDurableMethodState setSubscriptionDurable = (SetSubscriptionDurableMethodState)FindPredefinedNode(
+                        MethodIds.Server_SetSubscriptionDurable,
+                        typeof(SetSubscriptionDurableMethodState));
 
-                if (serverObject != null)
-                {
-                    NodeState setSubscriptionDurableNode = serverObject.FindChild(
-                        SystemContext,
-                        BrowseNames.SetSubscriptionDurable);
-
-                    if (setSubscriptionDurableNode != null)
+                    if (setSubscriptionDurable != null)
                     {
-                        DeleteNode(SystemContext, MethodIds.Server_SetSubscriptionDurable);
-                        serverObject.SetSubscriptionDurable = null;
+                        setSubscriptionDurable.OnCall = OnSetSubscriptionDurable;
                     }
                 }
-#endif
+                else
+                {
+                    // Subscription Durable mode not supported by the server.
+                    ServerObjectState serverObject = (ServerObjectState)FindPredefinedNode(
+                        ObjectIds.Server,
+                        typeof(ServerObjectState));
 
+                    if (serverObject != null)
+                    {
+                        NodeState setSubscriptionDurableNode = serverObject.FindChild(
+                            SystemContext,
+                            BrowseNames.SetSubscriptionDurable);
+
+                        if (setSubscriptionDurableNode != null)
+                        {
+                            DeleteNode(SystemContext, MethodIds.Server_SetSubscriptionDurable);
+                            serverObject.SetSubscriptionDurable = null;
+                        }
+                    }
+                }
                 // hookup server ResendData method.
 
                 ResendDataMethodState resendData = (ResendDataMethodState)FindPredefinedNode(
@@ -227,26 +231,7 @@ namespace Opc.Ua.Server
             uint lifetimeInHours,
             ref uint revisedLifetimeInHours)
         {
-            revisedLifetimeInHours = 0;
-
-            foreach (Subscription subscription in Server.SubscriptionManager.GetSubscriptions())
-            {
-                if (subscription.Id == subscriptionId)
-                {
-                    if (subscription.SessionId != context.SessionId)
-                    {
-                        // user tries to access subscription of different session
-                        return StatusCodes.BadUserAccessDenied;
-                    }
-
-                    ServiceResult result = subscription.SetSubscriptionDurable(lifetimeInHours, out uint revisedLifeTimeHours);
-
-                    revisedLifetimeInHours = revisedLifeTimeHours;
-                    return result;
-                }
-            }
-
-            return StatusCodes.BadSubscriptionIdInvalid;
+            return Server.SubscriptionManager.SetSubscriptionDurable(context, subscriptionId, lifetimeInHours, out revisedLifetimeInHours);
         }
 
         /// <summary>
@@ -384,7 +369,7 @@ namespace Opc.Ua.Server
         }
 
         /// <summary>
-        /// Loads a node set from a file or resource and addes them to the set of predefined nodes.
+        /// Loads a node set from a file or resource and adds them to the set of predefined nodes.
         /// </summary>
         protected override NodeStateCollection LoadPredefinedNodes(ISystemContext context)
         {
@@ -636,7 +621,7 @@ namespace Opc.Ua.Server
         }
 
         /// <summary>
-        /// True is diagnostics are currently enabled.
+        /// True if diagnostics are currently enabled.
         /// </summary>
         public bool DiagnosticsEnabled => m_diagnosticsEnabled;
 
@@ -782,6 +767,8 @@ namespace Opc.Ua.Server
                 if (array1 != null)
                 {
                     array1.OnSimpleReadValue = OnReadDiagnosticsArray;
+                    // Hook the OnReadUserRolePermissions callback to control which user roles can access the services on this node
+                    array1.OnReadUserRolePermissions = OnReadUserRolePermissions;
                 }
 
                 // set up handler for session security diagnostics array.
@@ -792,6 +779,8 @@ namespace Opc.Ua.Server
                 if (array2 != null)
                 {
                     array2.OnSimpleReadValue = OnReadDiagnosticsArray;
+                    // Hook the OnReadUserRolePermissions callback to control which user roles can access the services on this node
+                    array2.OnReadUserRolePermissions = OnReadUserRolePermissions;
                 }
 
                 // set up handler for subscription security diagnostics array.
@@ -969,7 +958,7 @@ namespace Opc.Ua.Server
                     systemContext,
                     null,
                     ReferenceTypeIds.HasComponent,
-                    new QualifiedName(diagnostics.SubscriptionId.ToString()),
+                    new QualifiedName(diagnostics.SubscriptionId.ToString(CultureInfo.InvariantCulture)),
                     diagnosticsNode);
 
                 // add reference to subscription array.
@@ -999,11 +988,14 @@ namespace Opc.Ua.Server
                     array.AddReference(ReferenceTypeIds.HasComponent, false, diagnosticsNode.NodeId);
                 }
 
-                // add reference to session subscription array.
-                diagnosticsNode.AddReference(
-                    ReferenceTypeIds.HasComponent,
-                    true,
-                    diagnostics.SessionId);
+                if (diagnostics.SessionId != null)
+                {
+                    // add reference to session subscription array.
+                    diagnosticsNode.AddReference(
+                        ReferenceTypeIds.HasComponent,
+                        true,
+                        diagnostics.SessionId);
+                }
 
                 // add reference from session subscription array.
                 SessionDiagnosticsObjectState sessionNode = (SessionDiagnosticsObjectState)FindPredefinedNode(
@@ -1096,6 +1088,7 @@ namespace Opc.Ua.Server
                     historyServerCapabilitiesNode.InsertDataCapability.Value = false;
                     historyServerCapabilitiesNode.DeleteRawCapability.Value = false;
                     historyServerCapabilitiesNode.DeleteAtTimeCapability.Value = false;
+                    historyServerCapabilitiesNode.ServerTimestampSupported.Value = false;
 
                     NodeState parent = FindPredefinedNode(ObjectIds.Server_ServerCapabilities, typeof(ServerCapabilitiesState));
 
@@ -1375,7 +1368,7 @@ namespace Opc.Ua.Server
 
 
         /// <summary>
-        /// Filter out the members which corespond to users that are not allowed to see their contents
+        /// Filter out the members which correspond to users that are not allowed to see their contents
         /// Current user is allowed to read its data, together with users which have permissions
         /// </summary>
         /// <typeparam name="T"></typeparam>
@@ -1388,7 +1381,7 @@ namespace Opc.Ua.Server
             if ((sessionId != context.SessionId) &&
                     !HasApplicationSecureAdminAccess(context))
             {
-                list[index] = default(T);
+                list[index] = default;
             }
         }
 
@@ -1404,20 +1397,20 @@ namespace Opc.Ua.Server
             NodeState node,
             ref RolePermissionTypeCollection value)
         {
-            bool admitUser;
+            bool adminUser;
 
             if ((node.NodeId == VariableIds.Server_ServerDiagnostics_ServerDiagnosticsSummary) ||
                  (node.NodeId == VariableIds.Server_ServerDiagnostics_SubscriptionDiagnosticsArray))
             {
-                admitUser = HasApplicationSecureAdminAccess(context);
+                adminUser = HasApplicationSecureAdminAccess(context);
             }
             else
             {
-                admitUser = (node.NodeId == context.SessionId) ||
+                adminUser = (node.NodeId == context.SessionId) ||
                             HasApplicationSecureAdminAccess(context);
             }
 
-            if (admitUser)
+            if (adminUser)
             {
                 var rolePermissionTypes = from roleId in m_kWellKnownRoles
                                           select new RolePermissionType() {
@@ -1547,7 +1540,8 @@ namespace Opc.Ua.Server
                     return false;
                 }
 
-                SystemConfigurationIdentity user = context.UserIdentity as SystemConfigurationIdentity;
+                IUserIdentity user = context.UserIdentity as RoleBasedIdentity;
+
                 if (user == null ||
                     user.TokenType == UserTokenType.Anonymous ||
                     !user.GrantedRoleIds.Contains(ObjectIds.WellKnownRole_SecurityAdmin))
@@ -2130,6 +2124,7 @@ namespace Opc.Ua.Server
         private int m_diagnosticsMonitoringCount;
         private bool m_diagnosticsEnabled;
         private bool m_doScanBusy;
+        private bool m_durableSubscriptionsEnabled;
         private DateTime m_lastDiagnosticsScanTime;
         private ServerDiagnosticsSummaryValue m_serverDiagnostics;
         private NodeValueSimpleEventHandler m_serverDiagnosticsCallback;

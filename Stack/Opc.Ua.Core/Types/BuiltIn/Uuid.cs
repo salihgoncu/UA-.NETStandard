@@ -24,7 +24,7 @@ namespace Opc.Ua
     /// and encoded/decoded to/from an underlying stream.
     /// </remarks>x
     [DataContract(Name = "Guid", Namespace = Namespaces.OpcUaXsd)]
-    public struct Uuid : IComparable, IFormattable
+    public struct Uuid : IComparable, IFormattable, IEquatable<Uuid>
     {
         #region Constructors
         /// <summary>
@@ -53,15 +53,10 @@ namespace Opc.Ua
         #endregion
 
         #region Static Fields
-
         /// <summary>
         /// A constant containing an empty GUID.
         /// </summary>
-        /// <remarks>
-        /// A constant containing an empty GUID.
-        /// </remarks>
         public static readonly Uuid Empty = new Uuid();
-
         #endregion
 
         #region Public Properties
@@ -208,6 +203,18 @@ namespace Opc.Ua
         }
 
         /// <summary>
+        /// Returns true if the objects are equal.
+        /// </summary>
+        /// <remarks>
+        /// Returns true if the objects are equal.
+        /// </remarks>
+        /// <param name="other">The object being compared to *this* object</param>
+        public bool Equals(Uuid other)
+        {
+            return (CompareTo(other) == 0);
+        }
+
+        /// <summary>
         /// Returns a hash code for the object.
         /// </summary>
         /// <remarks>
@@ -247,7 +254,7 @@ namespace Opc.Ua
                 return ((Uuid)obj).m_guid.CompareTo(m_guid);
             }
 
-            // compare guids.            
+            // compare guids.
             if (obj is Guid)
             {
                 return m_guid.CompareTo((Guid)obj);
@@ -274,7 +281,7 @@ namespace Opc.Ua
 
         #region Private Fields
         private Guid m_guid;
-        #endregion        
+        #endregion
     }
 
     #region UuidCollection Class
@@ -307,7 +314,7 @@ namespace Opc.Ua
         /// <remarks>
         /// Initializes the collection with the specified capacity.
         /// </remarks>
-        /// <param name="capacity">The maximum size of the colletion</param>
+        /// <param name="capacity">The maximum size of the collection</param>
         public UuidCollection(int capacity) : base(capacity) { }
 
         /// <summary>
@@ -316,7 +323,7 @@ namespace Opc.Ua
         /// <remarks>
         /// Converts an array to a collection.
         /// </remarks>
-        /// <param name="values">The array of <see cref="Uuid"/> values to return as a Collection</param>
+        /// <param name="values">The array of <see cref="Uuid"/> values to return as a collection</param>
         public static UuidCollection ToUuidCollection(Uuid[] values)
         {
             if (values != null)

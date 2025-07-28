@@ -13,21 +13,23 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Text;
-using System.Xml;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
-using System.Security.Cryptography.X509Certificates;
-using System.Reflection;
-using System.Runtime.Serialization;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
-using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Net;
-using System.Collections.ObjectModel;
-using Opc.Ua.Security.Certificates;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Serialization;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using System.Threading.Tasks;
+using System.Xml;
+using Opc.Ua.Security.Certificates;
+
+using NewNonceImplementation = Opc.Ua.Nonce;
 
 namespace Opc.Ua
 {
@@ -132,7 +134,7 @@ namespace Opc.Ua
         /// <summary>
         /// The default LocalFolder.
         /// </summary>
-        public static readonly string DefaultLocalFolder = Directory.GetCurrentDirectory();
+        public static string DefaultLocalFolder { get; set; } = Directory.GetCurrentDirectory();
 
         /// <summary>
         /// The full name of the Opc.Ua.Core assembly.
@@ -162,6 +164,16 @@ namespace Opc.Ua
             return url.StartsWith(Utils.UriSchemeHttps, StringComparison.Ordinal) ||
                 url.StartsWith(Utils.UriSchemeOpcHttps, StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// Returns <c>true</c> if the url starts with http, opc.https or https.
+        /// </summary>
+        /// <param name="url">The url</param>
+        public static bool IsUriHttpRelatedScheme(string url)
+        {
+            return url.StartsWith(Utils.UriSchemeHttps, StringComparison.Ordinal) ||
+                 IsUriHttpsScheme(url);
+        }
         #endregion
 
         #region Trace Support
@@ -174,7 +186,7 @@ namespace Opc.Ua
 #endif
 
         private static string s_traceFileName = string.Empty;
-        private static object s_traceFileLock = new object();
+        private readonly static object s_traceFileLock = new object();
 
         /// <summary>
         /// The possible trace output mechanisms.
@@ -316,7 +328,7 @@ namespace Opc.Ua
             {
                 try
                 {
-                    output = String.Format(CultureInfo.InvariantCulture, message, args);
+                    output = string.Format(CultureInfo.InvariantCulture, message, args);
                 }
                 catch (Exception)
                 {
@@ -492,9 +504,7 @@ namespace Opc.Ua
             // append exception information.
             if (e != null)
             {
-                ServiceResultException sre = e as ServiceResultException;
-
-                if (sre != null)
+                if (e is ServiceResultException sre)
                 {
                     message.AppendFormat(CultureInfo.InvariantCulture, " {0} '{1}'", StatusCodes.GetBrowseName(sre.StatusCode), sre.Message);
                 }
@@ -1031,7 +1041,7 @@ namespace Opc.Ua
 
         #region String, Object and Data Convienence Functions
         /// <summary>
-        /// Supresses any exceptions while disposing the object.
+        /// Suppresses any exceptions while disposing the object.
         /// </summary>
         /// <remarks>
         /// Writes errors to trace output in DEBUG builds.
@@ -1043,7 +1053,7 @@ namespace Opc.Ua
         }
 
         /// <summary>
-        /// Supresses any exceptions while disposing the object.
+        /// Suppresses any exceptions while disposing the object.
         /// </summary>
         /// <remarks>
         /// Writes errors to trace output in DEBUG builds.
@@ -1260,6 +1270,53 @@ namespace Opc.Ua
                 .Append(subjectName.Substring(index + dclocalhost.Length));
 #endif
             return buffer.ToString();
+        }
+
+        /// <summary>
+        /// Escapes a URI string using the percent encoding.
+        /// </summary>
+        public static string EscapeUri(string uri)
+        {
+            if (!string.IsNullOrWhiteSpace(uri))
+            {
+                // always use back compat: for not well formed Uri, fall back to legacy formatting behavior - see #2793, #2826
+                // problem with Uri.TryCreate(uri.Replace(";", "%3b"), UriKind.Absolute, out Uri validUri);
+                // -> uppercase letters will later be lowercase (and therefore the uri will later be non-matching)
+                var buffer = new StringBuilder();
+                foreach (char ch in uri)
+                {
+                    switch (ch)
+                    {
+                        case ';':
+                        case '%':
+                        {
+                            buffer.AppendFormat(CultureInfo.InvariantCulture, "%{0:X2}", Convert.ToInt16(ch));
+                            break;
+                        }
+
+                        default:
+                        {
+                            buffer.Append(ch);
+                            break;
+                        }
+                    }
+                }
+                return buffer.ToString();
+            }
+            return String.Empty;
+        }
+
+        /// <summary>
+        /// Unescapes a URI string using the percent encoding.
+        /// </summary>
+        public static string UnescapeUri(string uri)
+        {
+            if (!string.IsNullOrWhiteSpace(uri))
+            {
+                return Uri.UnescapeDataString(uri);
+            }
+
+            return String.Empty;
         }
 
         /// <summary>
@@ -1499,6 +1556,7 @@ namespace Opc.Ua
         /// <summary>
         /// Converts a buffer to a hexadecimal string.
         /// </summary>
+#if NETSTANDARD2_1_OR_GREATER || NET6_0_OR_GREATER
         public static string ToHexString(byte[] buffer, bool invertEndian = false)
         {
             if (buffer == null || buffer.Length == 0)
@@ -1506,24 +1564,56 @@ namespace Opc.Ua
                 return String.Empty;
             }
 
-            StringBuilder builder = new StringBuilder(buffer.Length * 2);
+            return ToHexString(new ReadOnlySpan<byte>(buffer), invertEndian);
+        }
 
-            if (invertEndian)
+        /// <summary>
+        /// Converts a buffer to a hexadecimal string.
+        /// </summary>
+        public static string ToHexString(ReadOnlySpan<byte> buffer, bool invertEndian = false)
+        {
+            if (buffer.Length == 0)
             {
-                for (int ii = buffer.Length - 1; ii >= 0; ii--)
-                {
-                    builder.AppendFormat(CultureInfo.InvariantCulture, "{0:X2}", buffer[ii]);
-                }
+                return String.Empty;
+            }
+#else
+        public static string ToHexString(byte[] buffer, bool invertEndian = false)
+        {
+            if (buffer == null || buffer.Length == 0)
+            {
+                return String.Empty;
+            }
+#endif
+
+#if NET6_0_OR_GREATER
+            if (!invertEndian)
+            {
+                return Convert.ToHexString(buffer);
             }
             else
+#endif
             {
-                for (int ii = 0; ii < buffer.Length; ii++)
-                {
-                    builder.AppendFormat(CultureInfo.InvariantCulture, "{0:X2}", buffer[ii]);
-                }
-            }
+                StringBuilder builder = new StringBuilder(buffer.Length * 2);
 
-            return builder.ToString();
+#if !NET6_0_OR_GREATER
+                if (!invertEndian)
+                {
+                    for (int ii = 0; ii < buffer.Length; ii++)
+                    {
+                        builder.AppendFormat(CultureInfo.InvariantCulture, "{0:X2}", buffer[ii]);
+                    }
+                }
+                else
+#endif
+                {
+                    for (int ii = buffer.Length - 1; ii >= 0; ii--)
+                    {
+                        builder.AppendFormat(CultureInfo.InvariantCulture, "{0:X2}", buffer[ii]);
+                    }
+                }
+
+                return builder.ToString();
+            }
         }
 
         /// <summary>
@@ -1531,6 +1621,9 @@ namespace Opc.Ua
         /// </summary>
         public static byte[] FromHexString(string buffer)
         {
+#if NET6_0_OR_GREATER
+            return Convert.FromHexString(buffer);
+#else
             if (buffer == null)
             {
                 return null;
@@ -1577,6 +1670,7 @@ namespace Opc.Ua
             }
 
             return bytes;
+#endif
         }
 
         /// <summary>
@@ -1586,7 +1680,7 @@ namespace Opc.Ua
         {
             if (source != null)
             {
-                return String.Format(CultureInfo.InvariantCulture, "{0}", source);
+                return string.Format(CultureInfo.InvariantCulture, "{0}", source);
             }
 
             return String.Empty;
@@ -1597,7 +1691,7 @@ namespace Opc.Ua
         /// </summary>
         public static string Format(string text, params object[] args)
         {
-            return String.Format(CultureInfo.InvariantCulture, text, args);
+            return string.Format(CultureInfo.InvariantCulture, text, args);
         }
 
         /// <summary>
@@ -1730,9 +1824,14 @@ namespace Opc.Ua
                 return value;
             }
 
+            // Guid are special a reference type that does not need to be copied.
+            if (type == typeof(Guid))
+            {
+                return value;
+            }
+
             // copy arrays, any dimension.
-            Array array = value as Array;
-            if (array != null)
+            if (value is Array array)
             {
                 if (array.Rank == 1)
                 {
@@ -1773,15 +1872,13 @@ namespace Opc.Ua
             }
 
             // copy XmlNode.
-            XmlNode node = value as XmlNode;
-            if (node != null)
+            if (value is XmlNode node)
             {
                 return node.CloneNode(true);
             }
 
             // use ICloneable if supported
-            ICloneable cloneable = value as ICloneable;
-            if (cloneable != null)
+            if (value is ICloneable cloneable)
             {
                 return cloneable.Clone();
             }
@@ -1880,6 +1977,95 @@ namespace Opc.Ua
         }
 
         /// <summary>
+        /// Checks if two T values are equal based on IEquatable compare.
+        /// </summary>
+        public static bool IsEqual<T>(T value1, T value2) where T : IEquatable<T>
+        {
+            // check for reference equality.
+            if (Object.ReferenceEquals(value1, value2))
+            {
+                return true;
+            }
+
+            if (Object.ReferenceEquals(value1, null))
+            {
+                if (!Object.ReferenceEquals(value2, null))
+                {
+                    return value2.Equals(value1);
+                }
+
+                return true;
+            }
+
+            // use IEquatable comparer
+            return value1.Equals(value2);
+        }
+
+        /// <summary>
+        /// Checks if two IEnumerable T values are equal.
+        /// </summary>
+        public static bool IsEqual<T>(IEnumerable<T> value1, IEnumerable<T> value2) where T : IEquatable<T>
+        {
+            // check for reference equality.
+            if (Object.ReferenceEquals(value1, value2))
+            {
+                return true;
+            }
+
+            if (Object.ReferenceEquals(value1, null) || Object.ReferenceEquals(value2, null))
+            {
+                return false;
+            }
+
+            return value1.SequenceEqual(value2);
+        }
+
+        /// <summary>
+        /// Checks if two T[] values are equal.
+        /// </summary>
+        public static bool IsEqual<T>(T[] value1, T[] value2) where T : unmanaged, IEquatable<T>
+        {
+            // check for reference equality.
+            if (Object.ReferenceEquals(value1, value2))
+            {
+                return true;
+            }
+
+            if (Object.ReferenceEquals(value1, null) || Object.ReferenceEquals(value2, null))
+            {
+                return false;
+            }
+
+            return value1.SequenceEqual(value2);
+        }
+
+#if NETFRAMEWORK
+        [DllImport("msvcrt.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int memcmp(byte[] b1, byte[] b2, long count);
+
+        /// <summary>
+        /// Fast memcpy version of byte[] compare. 
+        /// </summary>
+        public static bool IsEqual(byte[] value1, byte[] value2)
+        {
+            // check for reference equality.
+            if (Object.ReferenceEquals(value1, value2))
+            {
+                return true;
+            }
+
+            if (Object.ReferenceEquals(value1, null) || Object.ReferenceEquals(value2, null))
+            {
+                return false;
+            }
+
+            // Validate buffers are the same length.
+            // This also ensures that the count does not exceed the length of either buffer.  
+            return value1.Length == value2.Length && memcmp(value1, value2, value1.Length) == 0;
+        }
+#endif
+
+        /// <summary>
         /// Checks if two values are equal.
         /// </summary>
         public static bool IsEqual(object value1, object value2)
@@ -1891,9 +2077,9 @@ namespace Opc.Ua
             }
 
             // check for null values.
-            if (value1 == null)
+            if (Object.ReferenceEquals(value1, null))
             {
-                if (value2 != null)
+                if (!Object.ReferenceEquals(value2, null))
                 {
                     return value2.Equals(value1);
                 }
@@ -1902,12 +2088,12 @@ namespace Opc.Ua
             }
 
             // check for null values.
-            if (value2 == null)
+            if (Object.ReferenceEquals(value2, null))
             {
                 return value1.Equals(value2);
             }
 
-            // check that data types are the same.
+            // check that data types are not the same.
             if (value1.GetType() != value2.GetType())
             {
                 return value1.Equals(value2);
@@ -1920,17 +2106,13 @@ namespace Opc.Ua
             }
 
             // check for compareable objects.
-            IComparable comparable1 = value1 as IComparable;
-
-            if (comparable1 != null)
+            if (value1 is IComparable comparable1)
             {
                 return comparable1.CompareTo(value2) == 0;
             }
 
             // check for encodeable objects.
-            IEncodeable encodeable1 = value1 as IEncodeable;
-
-            if (encodeable1 != null)
+            if (value1 is IEncodeable encodeable1)
             {
                 if (!(value2 is IEncodeable encodeable2))
                 {
@@ -1941,9 +2123,7 @@ namespace Opc.Ua
             }
 
             // check for XmlElement objects.
-            XmlElement element1 = value1 as XmlElement;
-
-            if (element1 != null)
+            if (value1 is XmlElement element1)
             {
                 if (!(value2 is XmlElement element2))
                 {
@@ -1954,9 +2134,7 @@ namespace Opc.Ua
             }
 
             // check for arrays.
-            Array array1 = value1 as Array;
-
-            if (array1 != null)
+            if (value1 is Array array1)
             {
                 // arrays are greater than non-arrays.
                 if (!(value2 is Array array2))
@@ -1986,6 +2164,16 @@ namespace Opc.Ua
                     }
                 }
 
+                // handle byte[] special case fast
+                if (array1 is byte[] byteArray1 && array2 is byte[] byteArray2)
+                {
+#if NETFRAMEWORK
+                    return memcmp(byteArray1, byteArray2, byteArray1.Length) == 0;
+#else
+                    return byteArray1.SequenceEqual(byteArray2);
+#endif
+                }
+
                 IEnumerator enumerator1 = array1.GetEnumerator();
                 IEnumerator enumerator2 = array2.GetEnumerator();
 
@@ -2008,9 +2196,8 @@ namespace Opc.Ua
             }
 
             // check enumerables.
-            IEnumerable enumerable1 = value1 as IEnumerable;
 
-            if (enumerable1 != null)
+            if (value1 is IEnumerable enumerable1)
             {
                 // collections are greater than non-collections.
                 if (!(value2 is IEnumerable enumerable2))
@@ -2314,7 +2501,7 @@ namespace Opc.Ua
             // check if nothing to search for.
             if (extensions == null || extensions.Count == 0)
             {
-                return default(T);
+                return default;
             }
 
             // use the type name as the default.
@@ -2360,7 +2547,7 @@ namespace Opc.Ua
                 }
             }
 
-            return default(T);
+            return default;
         }
 
         /// <summary>
@@ -2381,7 +2568,7 @@ namespace Opc.Ua
 
             // serialize value.
             StringBuilder buffer = new StringBuilder();
-            using (XmlWriter writer = XmlWriter.Create(buffer))
+            using (XmlWriter writer = XmlWriter.Create(buffer, DefaultXmlWriterSettings()))
             {
                 if (value != null)
                 {
@@ -2477,9 +2664,7 @@ namespace Opc.Ua
             {
                 for (int ii = 0; ii < attributes.Length; ii++)
                 {
-                    DataMemberAttribute contract = attributes[ii] as DataMemberAttribute;
-
-                    if (contract != null)
+                    if (attributes[ii] is DataMemberAttribute contract)
                     {
                         if (String.IsNullOrEmpty(contract.Name))
                         {
@@ -2510,6 +2695,18 @@ namespace Opc.Ua
             }
 
             return 0;
+        }
+
+        private static readonly DateTime kBaseDateTime = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        /// <summary>
+        /// Return the current time in milliseconds since 1/1/2000.
+        /// </summary>
+        /// <returns>The current time in milliseconds since 1/1/2000.</returns>
+        public static uint GetVersionTime()
+        {
+            var ticks = (DateTime.UtcNow - kBaseDateTime).TotalMilliseconds;
+            return (uint)ticks;
         }
 
         /// <summary>
@@ -2629,19 +2826,23 @@ namespace Opc.Ua
         /// <summary>
         /// Creates a X509 certificate object from the DER encoded bytes.
         /// </summary>
-        public static X509Certificate2 ParseCertificateBlob(byte[] certificateData)
+        public static X509Certificate2 ParseCertificateBlob(ReadOnlyMemory<byte> certificateData)
         {
             // macOS X509Certificate2 constructor throws exception if a certchain is encoded
             // use AsnParser on macOS to parse for byteblobs,
+#if !NETFRAMEWORK
             bool useAsnParser = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+#endif
             try
             {
+#if !NETFRAMEWORK
                 if (useAsnParser)
                 {
                     var certBlob = AsnUtils.ParseX509Blob(certificateData);
                     return CertificateFactory.Create(certBlob, true);
                 }
                 else
+#endif
                 {
                     return CertificateFactory.Create(certificateData, true);
                 }
@@ -2660,26 +2861,32 @@ namespace Opc.Ua
         /// </summary>
         /// <param name="certificateData">The certificate data.</param>
         /// <returns></returns>
-        public static X509Certificate2Collection ParseCertificateChainBlob(byte[] certificateData)
+        public static X509Certificate2Collection ParseCertificateChainBlob(ReadOnlyMemory<byte> certificateData)
         {
             X509Certificate2Collection certificateChain = new X509Certificate2Collection();
-            List<byte> certificatesBytes = new List<byte>(certificateData);
+
             // macOS X509Certificate2 constructor throws exception if a certchain is encoded
             // use AsnParser on macOS to parse for byteblobs,
+#if !NETFRAMEWORK
             bool useAsnParser = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-            while (certificatesBytes.Count > 0)
+#endif
+            int offset = 0;
+            int length = certificateData.Length;
+            while (offset < length)
             {
                 X509Certificate2 certificate;
                 try
                 {
+#if !NETFRAMEWORK
                     if (useAsnParser)
                     {
-                        var certBlob = AsnUtils.ParseX509Blob(certificatesBytes.ToArray());
+                        var certBlob = AsnUtils.ParseX509Blob(certificateData.Slice(offset));
                         certificate = CertificateFactory.Create(certBlob, true);
                     }
                     else
+#endif
                     {
-                        certificate = CertificateFactory.Create(certificatesBytes.ToArray(), true);
+                        certificate = CertificateFactory.Create(certificateData.Slice(offset), true);
                     }
                 }
                 catch (Exception e)
@@ -2691,107 +2898,94 @@ namespace Opc.Ua
                 }
 
                 certificateChain.Add(certificate);
-                certificatesBytes.RemoveRange(0, certificate.RawData.Length);
+                offset += certificate.RawData.Length;
             }
 
             return certificateChain;
         }
 
+
+        /// <summary>
+        /// Creates a DER blob from a X509Certificate2Collection.
+        /// </summary>
+        /// <param name="certificates">The certificates to be returned as raw data.</param>
+        /// <returns>
+        /// A DER blob containing zero or more certificates.
+        /// </returns>
+        public static byte[] CreateCertificateChainBlob(X509Certificate2Collection certificates)
+        {
+            if (certificates == null || certificates.Count == 0)
+            {
+                return Array.Empty<byte>();
+            }
+
+            int totalSize = 0;
+
+            foreach (X509Certificate2 cert in certificates)
+            {
+                totalSize += cert.RawData.Length;
+            }
+
+            byte[] blobData = new byte[totalSize];
+            int offset = 0;
+
+            foreach (X509Certificate2 cert in certificates)
+            {
+                Array.Copy(cert.RawData, 0, blobData, offset, cert.RawData.Length);
+                offset += cert.RawData.Length;
+            }
+
+            return blobData;
+        }
         /// <summary>
         /// Compare Nonce for equality.
         /// </summary>
+        [Obsolete("Use equivalent methods from the Opc.Ua.Nonce class")]
         public static bool CompareNonce(byte[] a, byte[] b)
         {
-            if (a == null || b == null) return false;
-            if (a.Length != b.Length) return false;
-
-            byte result = 0;
-            for (int i = 0; i < a.Length; i++)
-                result |= (byte)(a[i] ^ b[i]);
-
-            return result == 0;
+            return NewNonceImplementation.CompareNonce(a, b);
         }
 
         /// <summary>
         /// Cryptographic Nonce helper functions.
         /// </summary>
+        [Obsolete("Use equivalent methods from the Opc.Ua.Nonce class")]
         public static class Nonce
         {
-            static readonly RandomNumberGenerator m_rng = RandomNumberGenerator.Create();
-
             /// <summary>
             /// Generates a Nonce for cryptographic functions.
             /// </summary>
+            [Obsolete("Use equivalent CreateRandomNonceData method from the Opc.Ua.Nonce class")]
             public static byte[] CreateNonce(uint length)
             {
-                byte[] randomBytes = new byte[length];
-                m_rng.GetBytes(randomBytes);
-                return randomBytes;
+                return NewNonceImplementation.CreateRandomNonceData(length);
             }
 
             /// <summary>
             /// Returns the length of the symmetric encryption key for a security policy.
             /// </summary>
+            [Obsolete("Use equivalent method from the Opc.Ua.Nonce class")]
             public static uint GetNonceLength(string securityPolicyUri)
             {
-                switch (securityPolicyUri)
-                {
-                    case SecurityPolicies.Basic128Rsa15:
-                    {
-                        return 16;
-                    }
-
-                    case SecurityPolicies.Basic256:
-                    case SecurityPolicies.Basic256Sha256:
-                    case SecurityPolicies.Aes128_Sha256_RsaOaep:
-                    case SecurityPolicies.Aes256_Sha256_RsaPss:
-                    {
-                        return 32;
-                    }
-
-                    default:
-                    case SecurityPolicies.None:
-                    {
-                        return 0;
-                    }
-                }
+                return NewNonceImplementation.GetNonceLength(securityPolicyUri);
             }
 
             /// <summary>
             /// Validates the nonce for a message security mode and security policy.
             /// </summary>
+            [Obsolete("Use equivalent method from the Opc.Ua.Nonce class")]
             public static bool ValidateNonce(byte[] nonce, MessageSecurityMode securityMode, string securityPolicyUri)
             {
-                return ValidateNonce(nonce, securityMode, GetNonceLength(securityPolicyUri));
+                return NewNonceImplementation.ValidateNonce(nonce, securityMode, GetNonceLength(securityPolicyUri));
             }
 
             /// <summary>
             /// Validates the nonce for a message security mode and a minimum length.
             /// </summary>
+            [Obsolete("Use equivalent method from the Opc.Ua.Nonce class")]
             public static bool ValidateNonce(byte[] nonce, MessageSecurityMode securityMode, uint minNonceLength)
             {
-                // no nonce needed for no security.
-                if (securityMode == MessageSecurityMode.None)
-                {
-                    return true;
-                }
-
-                // check the length.
-                if (nonce == null || nonce.Length < minNonceLength)
-                {
-                    return false;
-                }
-
-                // try to catch programming errors by rejecting nonces with all zeros.
-                for (int ii = 0; ii < nonce.Length; ii++)
-                {
-                    if (nonce[ii] != 0)
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
+                return NewNonceImplementation.ValidateNonce(nonce, securityMode, minNonceLength);
             }
         }
 
@@ -2805,8 +2999,10 @@ namespace Opc.Ua
         {
             if (secret == null) throw new ArgumentNullException(nameof(secret));
             // create the hmac.
-            HMACSHA1 hmac = new HMACSHA1(secret);
-            return PSHA(hmac, label, data, offset, length);
+            using (HMACSHA1 hmac = new HMACSHA1(secret))
+            {
+                return PSHA(hmac, label, data, offset, length);
+            }
         }
 
         /// <summary>
@@ -2816,14 +3012,36 @@ namespace Opc.Ua
         {
             if (secret == null) throw new ArgumentNullException(nameof(secret));
             // create the hmac.
-            HMACSHA256 hmac = new HMACSHA256(secret);
+            using (HMACSHA256 hmac = new HMACSHA256(secret))
+            {
+                return PSHA(hmac, label, data, offset, length);
+            }
+        }
+
+        /// <summary>
+        /// Generates a Pseudo random sequence of bits using the P_SHA1 alhorithm.
+        /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage(
+            "Security", "CA5350:Do Not Use Weak Cryptographic Algorithms",
+            Justification = "SHA1 is needed for deprecated security profiles.")]
+        public static byte[] PSHA1(HMACSHA1 hmac, string label, byte[] data, int offset, int length)
+        {
             return PSHA(hmac, label, data, offset, length);
         }
 
         /// <summary>
+        /// Generates a Pseudo random sequence of bits using the P_SHA256 alhorithm.
+        /// </summary>
+        public static byte[] PSHA256(HMACSHA256 hmac, string label, byte[] data, int offset, int length)
+        {
+            return PSHA(hmac, label, data, offset, length);
+        }
+
+
+        /// <summary>
         /// Generates a Pseudo random sequence of bits using the HMAC algorithm.
         /// </summary>
-        private static byte[] PSHA(HMAC hmac, string label, byte[] data, int offset, int length)
+        public static byte[] PSHA(HMAC hmac, string label, byte[] data, int offset, int length)
         {
             if (hmac == null) throw new ArgumentNullException(nameof(hmac));
             if (offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
@@ -2834,7 +3052,7 @@ namespace Opc.Ua
             // convert label to UTF-8 byte sequence.
             if (!String.IsNullOrEmpty(label))
             {
-                seed = new UTF8Encoding().GetBytes(label);
+                seed = Encoding.UTF8.GetBytes(label);
             }
 
             // append data to label.
@@ -2868,7 +3086,6 @@ namespace Opc.Ua
             byte[] output = new byte[length];
 
             int position = 0;
-
             do
             {
                 byte[] hash = hmac.ComputeHash(prfSeed);
@@ -2899,6 +3116,32 @@ namespace Opc.Ua
             return output;
         }
 
+
+        /// <summary>
+        /// Creates an HMAC.
+        /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Security",
+            "CA5350:Do Not Use Weak Cryptographic Algorithms", Justification = "<Pending>")]
+        public static HMAC CreateHMAC(HashAlgorithmName algorithmName, byte[] secret)
+        {
+            if (algorithmName == HashAlgorithmName.SHA256)
+            {
+                return new HMACSHA256(secret);
+            }
+
+            if (algorithmName == HashAlgorithmName.SHA384)
+            {
+                return new HMACSHA384(secret);
+            }
+
+            if (algorithmName == HashAlgorithmName.SHA1)
+            {
+                return new HMACSHA1(secret);
+            }
+
+            throw new NotImplementedException();
+        }
+
         /// <summary>
         /// Checks if the target is in the list. Comparisons ignore case.
         /// </summary>
@@ -2919,6 +3162,76 @@ namespace Opc.Ua
 
             return false;
         }
+
+        /// <summary>
+        /// Returns if the certificate type is supported on the platform OS.
+        /// </summary>
+        /// <param name="certificateType">The certificate type to check.</param>
+        public static bool IsSupportedCertificateType(NodeId certificateType)
+        {
+            if (certificateType.Identifier is uint identifier)
+            {
+                switch (identifier)
+                {
+#if ECC_SUPPORT
+                    case ObjectTypes.EccApplicationCertificateType:
+                        return true;
+                    case ObjectTypes.EccBrainpoolP256r1ApplicationCertificateType:
+                        return s_eccCurveSupportCache[ECCurve.NamedCurves.brainpoolP256r1.Oid.FriendlyName].Value;
+                    case ObjectTypes.EccBrainpoolP384r1ApplicationCertificateType:
+                        return s_eccCurveSupportCache[ECCurve.NamedCurves.brainpoolP384r1.Oid.FriendlyName].Value;
+                    case ObjectTypes.EccNistP256ApplicationCertificateType:
+                        return s_eccCurveSupportCache[ECCurve.NamedCurves.nistP256.Oid.FriendlyName].Value;
+                    case ObjectTypes.EccNistP384ApplicationCertificateType:
+                        return s_eccCurveSupportCache[ECCurve.NamedCurves.nistP384.Oid.FriendlyName].Value;
+                    //case ObjectTypes.EccCurve25519ApplicationCertificateType:
+                    //case ObjectTypes.EccCurve448ApplicationCertificateType:
+#endif
+                    case ObjectTypes.ApplicationCertificateType:
+                    case ObjectTypes.RsaMinApplicationCertificateType:
+                    case ObjectTypes.RsaSha256ApplicationCertificateType:
+                    case ObjectTypes.HttpsCertificateType:
+                    case ObjectTypes.UserCredentialCertificateType:
+                        return true;
+                }
+            }
+            return false;
+        }
+#if ECC_SUPPORT
+        /// <summary>
+        /// Check if known curve is supported by platform
+        /// </summary>
+        /// <param name="eCCurve"></param>
+        private static bool IsCurveSupported(ECCurve eCCurve)
+        {
+            try
+            {
+                // Create a ECDsa object and generate a new keypair on the given curve
+                using (ECDsa eCDsa = ECDsa.Create(eCCurve))
+                {
+                    ECParameters parameters = eCDsa.ExportParameters(false);
+                    return parameters.Q.X != null && parameters.Q.Y != null;
+                }
+            }
+            catch (Exception ex) when (
+                ex is PlatformNotSupportedException ||
+                ex is ArgumentException ||
+                ex is CryptographicException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Lazy helper for checking ECC eliptic curve support for running OS
+        /// </summary>
+        private static readonly Dictionary<string, Lazy<bool>> s_eccCurveSupportCache = new Dictionary<string, Lazy<bool>>{
+            { ECCurve.NamedCurves.nistP256.Oid.FriendlyName, new Lazy<bool>(() => IsCurveSupported(ECCurve.NamedCurves.nistP256)) },
+            { ECCurve.NamedCurves.nistP384.Oid.FriendlyName, new Lazy<bool>(() => IsCurveSupported(ECCurve.NamedCurves.nistP384)) },
+            { ECCurve.NamedCurves.brainpoolP256r1.Oid.FriendlyName, new Lazy<bool>(() => IsCurveSupported(ECCurve.NamedCurves.brainpoolP256r1)) },
+            { ECCurve.NamedCurves.brainpoolP384r1.Oid.FriendlyName, new Lazy<bool>(() => IsCurveSupported(ECCurve.NamedCurves.brainpoolP384r1)) },
+        };
+#endif
 
         /// <summary>
         /// Lazy helper to allow runtime check for Mono.

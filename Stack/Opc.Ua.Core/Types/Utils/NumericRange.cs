@@ -47,7 +47,6 @@ namespace Opc.Ua
 
             Begin = begin;
         }
-
         /// <summary>
         /// Initializes the object with a begin and end indexes.
         /// </summary>
@@ -200,18 +199,16 @@ namespace Opc.Ua
             int count = -1;
 
             // check for collections.
-            ICollection collection = value as ICollection;
 
-            if (collection != null)
+            if (value is ICollection collection)
             {
                 count = collection.Count;
             }
             else
             {
                 // check for arrays.
-                Array array = value as Array;
 
-                if (array != null)
+                if (value is Array array)
                 {
                     count = array.Length;
                 }
@@ -353,10 +350,10 @@ namespace Opc.Ua
             {
                 if (m_end < 0)
                 {
-                    return String.Format(formatProvider, "{0}", m_begin);
+                    return string.Format(formatProvider, "{0}", m_begin);
                 }
 
-                return String.Format(formatProvider, "{0}:{1}", m_begin, m_end);
+                return string.Format(formatProvider, "{0}:{1}", m_begin, m_end);
             }
 
             throw new FormatException(Utils.Format("Invalid format string: '{0}'.", format));
@@ -492,9 +489,7 @@ namespace Opc.Ua
             // check for matrix.
             if (array == null)
             {
-                Matrix matrix = value as Matrix;
-
-                if (matrix == null || matrix.Dimensions.Length != m_subranges.Length)
+                if (!(value is Matrix matrix) || matrix.Dimensions.Length != m_subranges.Length)
                 {
                     value = null;
                     return StatusCodes.BadIndexRangeNoData;
@@ -636,10 +631,9 @@ namespace Opc.Ua
                 // check for subset of string.
                 if (dstTypeInfo.BuiltInType == BuiltInType.String)
                 {
-                    string srcString = src as string;
                     char[] dstString = ((string)dst).ToCharArray();
 
-                    if (srcString == null || srcString.Length != this.Count)
+                    if (!(src is string srcString) || srcString.Length != this.Count)
                     {
                         return StatusCodes.BadIndexRangeInvalid;
                     }
@@ -661,10 +655,9 @@ namespace Opc.Ua
                 // update elements within a byte string.
                 else if (dstTypeInfo.BuiltInType == BuiltInType.ByteString)
                 {
-                    byte[] srcString = src as byte[];
                     byte[] dstString = (byte[])dst;
 
-                    if (srcString == null || srcString.Length != this.Count)
+                    if (!(src is byte[] srcString) || srcString.Length != this.Count)
                     {
                         return StatusCodes.BadIndexRangeInvalid;
                     }
@@ -692,9 +685,7 @@ namespace Opc.Ua
             // check for destinations specified as a matrix.
             if (dstArray == null)
             {
-                Matrix matrix = dst as Matrix;
-
-                if (matrix == null || m_subranges == null || matrix.Dimensions.Length != m_subranges.Length)
+                if (!(dst is Matrix matrix) || m_subranges == null || matrix.Dimensions.Length != m_subranges.Length)
                 {
                     return StatusCodes.BadIndexRangeInvalid;
                 }
@@ -705,9 +696,7 @@ namespace Opc.Ua
             // check for input specified as a matrix.
             if (srcArray == null)
             {
-                Matrix matrix = src as Matrix;
-
-                if (matrix == null || m_subranges == null || matrix.Dimensions.Length != m_subranges.Length)
+                if (!(src is Matrix matrix) || m_subranges == null || matrix.Dimensions.Length != m_subranges.Length)
                 {
                     return StatusCodes.BadIndexRangeInvalid;
                 }
@@ -987,9 +976,8 @@ namespace Opc.Ua
             if (array == null && list == null)
             {
                 // check for string.
-                String chars = value as String;
 
-                if (chars != null)
+                if (value is String chars)
                 {
                     isString = true;
                     array = chars.ToCharArray();

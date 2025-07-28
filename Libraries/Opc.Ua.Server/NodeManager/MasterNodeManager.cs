@@ -30,6 +30,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 
 namespace Opc.Ua.Server
@@ -421,10 +422,9 @@ namespace Opc.Ua.Server
             // allocate a new table (using arrays instead of collections because lookup efficiency is critical).
             INodeManager[][] namespaceManagers = new INodeManager[m_server.NamespaceUris.Count][];
 
+            m_readWriterLockSlim.EnterWriteLock();
             try
             {
-                m_readWriterLockSlim.EnterWriteLock();
-
                 // copy existing values.
                 for (int ii = 0; ii < m_namespaceManagers.Length; ii++)
                 {
@@ -490,10 +490,9 @@ namespace Opc.Ua.Server
             // allocate a new table (using arrays instead of collections because lookup efficiency is critical).
             INodeManager[][] namespaceManagers = new INodeManager[m_server.NamespaceUris.Count][];
 
+            m_readWriterLockSlim.EnterWriteLock();
             try
             {
-                m_readWriterLockSlim.EnterWriteLock();
-
                 // copy existing values.
                 for (int ii = 0; ii < m_namespaceManagers.Length; ii++)
                 {
@@ -559,10 +558,9 @@ namespace Opc.Ua.Server
             // use the namespace index to select the node manager.
             int index = nodeId.NamespaceIndex;
 
+            m_readWriterLockSlim.EnterReadLock();
             try
             {
-                m_readWriterLockSlim.EnterReadLock();
-           
                 // check if node managers are registered - use the core node manager if unknown.
                 if (index >= m_namespaceManagers.Length || m_namespaceManagers[index] == null)
                 {
@@ -657,8 +655,7 @@ namespace Opc.Ua.Server
                 LocalReference reference = referencesToRemove[ii];
 
                 // find source node.
-                INodeManager nodeManager = null;
-                object sourceHandle = GetManagerHandle(reference.SourceId, out nodeManager);
+                object sourceHandle = GetManagerHandle(reference.SourceId, out INodeManager nodeManager);
 
                 if (sourceHandle == null)
                 {
@@ -816,7 +813,7 @@ namespace Opc.Ua.Server
         /// <summary>
         /// Updates the diagnostics return parameter.
         /// </summary>
-        private void UpdateDiagnostics(
+        protected void UpdateDiagnostics(
             OperationContext context,
             bool diagnosticsExist,
             ref DiagnosticInfoCollection diagnosticInfos)
@@ -1372,7 +1369,7 @@ namespace Opc.Ua.Server
         /// <summary>
         /// Returns the set of references that meet the filter criteria.
         /// </summary>
-        private ServiceResult Browse(
+        protected ServiceResult Browse(
             OperationContext context,
             ViewDescription view,
             uint maxReferencesPerNode,
@@ -1926,7 +1923,7 @@ namespace Opc.Ua.Server
                     }
 
                     ServerUtils.ReportWriteValue(nodesToWrite[ii].NodeId, nodesToWrite[ii].Value, results[ii]);
-                }                
+                }
             }
 
             // clear the diagnostics array if no diagnostics requested or no errors occurred.
@@ -2068,7 +2065,7 @@ namespace Opc.Ua.Server
         }
 
         /// <summary>
-        /// Calls a method defined on a object.
+        /// Calls a method defined on an object.
         /// </summary>
         public virtual void Call(
             OperationContext context,
@@ -2193,7 +2190,8 @@ namespace Opc.Ua.Server
             IList<MonitoredItemCreateRequest> itemsToCreate,
             IList<ServiceResult> errors,
             IList<MonitoringFilterResult> filterResults,
-            IList<IMonitoredItem> monitoredItems)
+            IList<IMonitoredItem> monitoredItems,
+            bool createDurable)
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
             if (itemsToCreate == null) throw new ArgumentNullException(nameof(itemsToCreate));
@@ -2239,6 +2237,7 @@ namespace Opc.Ua.Server
                     errors,
                     filterResults,
                     monitoredItems,
+                    createDurable,
                     ref m_lastMonitoredItemId);
 
                 // create items for data access.
@@ -2253,6 +2252,7 @@ namespace Opc.Ua.Server
                         errors,
                         filterResults,
                         monitoredItems,
+                        createDurable,
                         ref m_lastMonitoredItemId);
                 }
 
@@ -2279,6 +2279,7 @@ namespace Opc.Ua.Server
             IList<ServiceResult> errors,
             IList<MonitoringFilterResult> filterResults,
             IList<IMonitoredItem> monitoredItems,
+            bool createDurable,
             ref long globalIdCounter)
         {
             for (int ii = 0; ii < itemsToCreate.Count; ii++)
@@ -2365,7 +2366,8 @@ namespace Opc.Ua.Server
                         timestampsToReturn,
                         publishingInterval,
                         itemToCreate,
-                        filter);
+                        filter,
+                        createDurable);
 
                     // subscribe to all node managers.
                     if (itemToCreate.ItemToMonitor.NodeId == Objects.Server)
@@ -2398,6 +2400,111 @@ namespace Opc.Ua.Server
 
                     monitoredItems[ii] = monitoredItem;
                     errors[ii] = StatusCodes.Good;
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// Restore a set of monitored items after a Server Restart.
+        /// </summary>
+        public virtual void RestoreMonitoredItems(
+            IList<IStoredMonitoredItem> itemsToRestore,
+            IList<IMonitoredItem> monitoredItems,
+            IUserIdentity savedOwnerIdentity)
+        {
+            if (itemsToRestore == null) throw new ArgumentNullException(nameof(itemsToRestore));
+            if (monitoredItems == null) throw new ArgumentNullException(nameof(monitoredItems));
+
+            if (m_server.IsRunning)
+            {
+                throw new InvalidOperationException("Subscription restore can only occur on startup");
+            }
+
+            // create items for event filters.
+            RestoreMonitoredItemsForEvents(
+               itemsToRestore,
+               monitoredItems);
+
+            // create items for data access.
+            foreach (INodeManager nodeManager in m_nodeManagers)
+            {
+                nodeManager.RestoreMonitoredItems(
+                    itemsToRestore,
+                    monitoredItems,
+                    savedOwnerIdentity);
+            }
+
+            m_lastMonitoredItemId = itemsToRestore.Max(i => i.Id);
+        }
+
+        /// <summary>
+        /// Restore monitored items for event subscriptions.
+        /// </summary>
+        private void RestoreMonitoredItemsForEvents(
+            IList<IStoredMonitoredItem> itemsToRestore,
+            IList<IMonitoredItem> monitoredItems)
+        {
+            for (int ii = 0; ii < itemsToRestore.Count; ii++)
+            {
+                IStoredMonitoredItem item = itemsToRestore[ii];
+
+                if (!item.IsRestored)
+                {
+                    // all event subscriptions required an event filter.
+                    EventFilter filter = item.OriginalFilter as EventFilter;
+
+                    if (filter == null)
+                    {
+                        continue;
+                    }
+
+                    item.IsRestored = true;
+
+                    // check if a valid node.
+                    INodeManager nodeManager = null;
+
+                    object handle = GetManagerHandle(item.NodeId, out nodeManager);
+
+                    if (handle == null)
+                    {
+                        continue;
+                    }
+
+                    MonitoredItem monitoredItem = m_server.EventManager.RestoreMonitoredItem(
+                        nodeManager,
+                        handle,
+                        item);
+
+                    // subscribe to all node managers.
+                    if (item.NodeId == Objects.Server)
+                    {
+                        foreach (INodeManager manager in m_nodeManagers)
+                        {
+                            try
+                            {
+                                manager.SubscribeToAllEvents(new OperationContext(monitoredItem), monitoredItem.SubscriptionId, monitoredItem, false);
+                            }
+                            catch (Exception e)
+                            {
+                                Utils.LogError(e, "NodeManager threw an exception subscribing to all events. NodeManager={0}", manager);
+                            }
+                        }
+                    }
+
+                    // only subscribe to the node manager that owns the node.
+                    else
+                    {
+                        ServiceResult error = nodeManager.SubscribeToEvents(new OperationContext(monitoredItem), handle, monitoredItem.SubscriptionId, monitoredItem, false);
+
+                        if (ServiceResult.IsBad(error))
+                        {
+                            m_server.EventManager.DeleteMonitoredItem(monitoredItem.Id);
+                            continue;
+                        }
+                    }
+
+                    monitoredItems[ii] = monitoredItem;
                 }
             }
         }
@@ -3234,7 +3341,7 @@ namespace Opc.Ua.Server
         /// <returns></returns>
         protected internal static ServiceResult ValidateRolePermissions(OperationContext context, NodeMetadata nodeMetadata, PermissionType requestedPermission)
         {
-            if (context.Session == null || nodeMetadata == null || requestedPermission == PermissionType.None)
+            if (nodeMetadata == null || requestedPermission == PermissionType.None)
             {
                 // no permission is required hence the validation passes
                 return StatusCodes.Good;
@@ -3324,7 +3431,7 @@ namespace Opc.Ua.Server
                 }
             }
 
-            var currentRoleIds = context.Session.Identity.GrantedRoleIds;
+            var currentRoleIds = context?.UserIdentity?.GrantedRoleIds;
             if (currentRoleIds == null || currentRoleIds.Count == 0)
             {
                 return ServiceResult.Create(StatusCodes.BadUserAccessDenied, "Current user has no granted role.");
@@ -3346,7 +3453,7 @@ namespace Opc.Ua.Server
         #endregion
 
         #region Private Fields
-        private object m_lock = new object();
+        private readonly object m_lock = new object();
         private IServerInternal m_server;
         private List<INodeManager> m_nodeManagers;
         private long m_lastMonitoredItemId;
@@ -3394,7 +3501,7 @@ namespace Opc.Ua.Server
         }
 
         /// <summary>
-        /// True is the reference is an inverse reference.
+        /// True if the reference is an inverse reference.
         /// </summary>
         public bool IsInverse
         {

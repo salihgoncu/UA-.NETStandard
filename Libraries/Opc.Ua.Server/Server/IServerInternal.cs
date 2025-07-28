@@ -140,6 +140,16 @@ namespace Opc.Ua.Server
         ISubscriptionManager SubscriptionManager { get; }
 
         /// <summary>
+        /// The factory for (durable) monitored item queues
+        /// </summary>
+        IMonitoredItemQueueFactory MonitoredItemQueueFactory { get; }
+
+        /// <summary>
+        /// The store to persist and retrieve subscriptions
+        /// </summary>
+        ISubscriptionStore SubscriptionStore { get; }
+
+        /// <summary>
         /// Whether the server is currently running.
         /// </summary>
         /// <value>

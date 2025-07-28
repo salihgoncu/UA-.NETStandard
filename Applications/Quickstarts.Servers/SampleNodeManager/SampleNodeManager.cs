@@ -358,7 +358,7 @@ namespace Opc.Ua.Sample
 
         #region CreateAddressSpace Support Functions
         /// <summary>
-        /// Loads a node set from a file or resource and addes them to the set of predefined nodes.
+        /// Loads a node set from a file or resource and adds them to the set of predefined nodes.
         /// </summary>
         public virtual void LoadPredefinedNodes(
             ISystemContext context,
@@ -376,12 +376,12 @@ namespace Opc.Ua.Sample
                 AddPredefinedNode(context, predefinedNodes[ii]);
             }
 
-            // ensure the reverse refernces exist.
+            // ensure the reverse references exist.
             AddReverseReferences(externalReferences);
         }
 
         /// <summary>
-        /// Loads a node set from a file or resource and addes them to the set of predefined nodes.
+        /// Loads a node set from a file or resource and adds them to the set of predefined nodes.
         /// </summary>
         protected virtual NodeStateCollection LoadPredefinedNodes(ISystemContext context)
         {
@@ -389,7 +389,7 @@ namespace Opc.Ua.Sample
         }
 
         /// <summary>
-        /// Loads a node set from a file or resource and addes them to the set of predefined nodes.
+        /// Loads a node set from a file or resource and adds them to the set of predefined nodes.
         /// </summary>
         protected virtual void LoadPredefinedNodes(
             ISystemContext context,
@@ -404,7 +404,7 @@ namespace Opc.Ua.Sample
                 AddPredefinedNode(context, predefinedNodes[ii]);
             }
 
-            // ensure the reverse refernces exist.
+            // ensure the reverse references exist.
             AddReverseReferences(externalReferences);
         }
 
@@ -506,7 +506,7 @@ namespace Opc.Ua.Sample
                 LocalReference referenceToRemove = new LocalReference(
                     (NodeId)reference.TargetId,
                     reference.ReferenceTypeId,
-                    reference.IsInverse,
+                    !reference.IsInverse,
                     node.NodeId);
 
                 referencesToRemove.Add(referenceToRemove);
@@ -722,7 +722,7 @@ namespace Opc.Ua.Sample
         }
 
         /// <summary>
-        /// Finds the specified and checks if it is of the expected type. 
+        /// Finds the specified node and checks if it is of the expected type. 
         /// </summary>
         /// <returns>Returns null if not found or not of the correct type.</returns>
         public NodeState FindPredefinedNode(NodeId nodeId, Type expectedType)
@@ -1297,7 +1297,7 @@ namespace Opc.Ua.Sample
                     {
                         errors[ii] = StatusCodes.BadNodeIdUnknown;
 
-                        // must validate node in a seperate operation.
+                        // must validate node in a separate operation.
                         ReadWriteOperationState operation = new ReadWriteOperationState();
 
                         operation.Source = source;
@@ -1429,7 +1429,7 @@ namespace Opc.Ua.Sample
                     // check if the node is ready for reading.
                     if (source.ValidationRequired)
                     {
-                        // must validate node in a seperate operation.
+                        // must validate node in a separate operation.
                         errors[ii] = StatusCodes.BadNodeIdUnknown;
                         nodesToValidate.Add(operation);
                         continue;
@@ -1639,7 +1639,7 @@ namespace Opc.Ua.Sample
                     {
                         errors[ii] = StatusCodes.BadNodeIdUnknown;
 
-                        // must validate node in a seperate operation.
+                        // must validate node in a separate operation.
                         ReadWriteOperationState operation = new ReadWriteOperationState();
 
                         operation.Source = source;
@@ -1734,7 +1734,7 @@ namespace Opc.Ua.Sample
                     {
                         errors[ii] = StatusCodes.BadNodeIdUnknown;
 
-                        // must validate node in a seperate operation.
+                        // must validate node in a separate operation.
                         ReadWriteOperationState operation = new ReadWriteOperationState();
 
                         operation.Source = source;
@@ -1832,7 +1832,7 @@ namespace Opc.Ua.Sample
                     {
                         errors[ii] = StatusCodes.BadNodeIdUnknown;
 
-                        // must validate node in a seperate operation.
+                        // must validate node in a separate operation.
                         CallOperationState operation = new CallOperationState();
 
                         operation.Source = source;
@@ -2207,6 +2207,7 @@ namespace Opc.Ua.Sample
             IList<ServiceResult> errors,
             IList<MonitoringFilterResult> filterErrors,
             IList<IMonitoredItem> monitoredItems,
+            bool createDurable,
             ref long globalIdCounter)
         {
             ServerSystemContext systemContext = m_systemContext.Copy(context);
@@ -2243,7 +2244,7 @@ namespace Opc.Ua.Sample
                     {
                         errors[ii] = StatusCodes.BadNodeIdUnknown;
 
-                        // must validate node in a seperate operation.
+                        // must validate node in a separate operation.
                         ReadWriteOperationState operation = new ReadWriteOperationState();
 
                         operation.Source = source;
@@ -2265,6 +2266,7 @@ namespace Opc.Ua.Sample
                         context.DiagnosticsMask,
                         timestampsToReturn,
                         itemToCreate,
+                        createDurable,
                         ref globalIdCounter,
                         out filterError,
                         out monitoredItem);
@@ -2311,6 +2313,7 @@ namespace Opc.Ua.Sample
                         context.DiagnosticsMask,
                         timestampsToReturn,
                         itemToCreate,
+                        createDurable,
                         ref globalIdCounter,
                         out filterError,
                         out monitoredItem);
@@ -2319,6 +2322,110 @@ namespace Opc.Ua.Sample
                     filterErrors[operation.Index] = filterError;
 
                     if (ServiceResult.IsBad(errors[operation.Index]))
+                    {
+                        continue;
+                    }
+
+                    // save the monitored item.
+                    monitoredItems[operation.Index] = monitoredItem;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Restore a set of monitored items after a restart.
+        /// </summary>
+        public virtual void RestoreMonitoredItems(
+            IList<IStoredMonitoredItem> itemsToRestore,
+            IList<IMonitoredItem> monitoredItems,
+            IUserIdentity savedOwnerIdentity)
+        {
+            if (itemsToRestore == null) throw new ArgumentNullException(nameof(itemsToRestore));
+            if (monitoredItems == null) throw new ArgumentNullException(nameof(monitoredItems));
+
+            if (m_server.IsRunning)
+            {
+                throw new InvalidOperationException("Subscription restore can only occur on startup");
+            }
+
+            ServerSystemContext systemContext = m_systemContext.Copy();
+            IDictionary<NodeId, NodeState> operationCache = new NodeIdDictionary<NodeState>();
+            List<ReadWriteOperationState> nodesToValidate = new List<ReadWriteOperationState>();
+
+            lock (Lock)
+            {
+                for (int ii = 0; ii < itemsToRestore.Count; ii++)
+                {
+                    IStoredMonitoredItem itemToCreate = itemsToRestore[ii];
+
+                    // skip items that have already been processed.
+                    if (itemToCreate.IsRestored)
+                    {
+                        continue;
+                    }
+
+                    // check for valid handle.
+                    NodeState source = GetManagerHandle(systemContext, itemToCreate.NodeId, operationCache) as NodeState;
+
+                    if (source == null)
+                    {
+                        continue;
+                    }
+
+                    // owned by this node manager.
+                    itemToCreate.IsRestored = true;
+
+                    // check if the node is ready for reading.
+                    if (source.ValidationRequired)
+                    {
+                        // must validate node in a separate operation.
+                        ReadWriteOperationState operation = new ReadWriteOperationState();
+
+                        operation.Source = source;
+                        operation.Index = ii;
+
+                        nodesToValidate.Add(operation);
+
+                        continue;
+                    }
+
+                    IMonitoredItem monitoredItem = null;
+
+                    bool success = RestoreMonitoredItem(systemContext, source, itemToCreate, out monitoredItem);
+
+                    if (!success)
+                    {
+                        continue;
+                    }
+
+                    // save the monitored item.
+                    monitoredItems[ii] = monitoredItem;
+                }
+
+                // check for nothing to do.
+                if (nodesToValidate.Count == 0)
+                {
+                    return;
+                }
+
+                // validates the nodes (reads values from the underlying data source if required).
+                for (int ii = 0; ii < nodesToValidate.Count; ii++)
+                {
+                    ReadWriteOperationState operation = nodesToValidate[ii];
+
+                    // validate the object.
+                    if (!ValidateNode(systemContext, operation.Source))
+                    {
+                        continue;
+                    }
+
+                    IStoredMonitoredItem itemToCreate = itemsToRestore[operation.Index];
+
+                    IMonitoredItem monitoredItem = null;
+
+                    bool success = RestoreMonitoredItem(systemContext, operation.Source, itemToCreate, out monitoredItem);
+
+                    if (!success)
                     {
                         continue;
                     }
@@ -2445,6 +2552,53 @@ namespace Opc.Ua.Sample
         }
 
         /// <summary>
+        /// Restore a single monitored Item after a restart
+        /// </summary>
+        /// <returns>true if sucesfully restored</returns>
+        protected virtual bool RestoreMonitoredItem(
+            ServerSystemContext context,
+            NodeState source,
+            IStoredMonitoredItem storedMonitoredItem,
+            out IMonitoredItem monitoredItem)
+        {
+
+            // create monitored node.
+            MonitoredNode monitoredNode = source.Handle as MonitoredNode;
+
+            if (monitoredNode == null)
+            {
+                source.Handle = monitoredNode = new MonitoredNode(m_server, this, source);
+            }
+
+            // check if the variable needs to be sampled.
+            bool samplingRequired = false;
+
+            if (storedMonitoredItem.AttributeId == Attributes.Value)
+            {
+                BaseVariableState variable = source as BaseVariableState;
+
+                if (variable.MinimumSamplingInterval > 0)
+                {
+                    storedMonitoredItem.SamplingInterval = CalculateSamplingInterval(variable, storedMonitoredItem.SamplingInterval);
+                    samplingRequired = true;
+                }
+            }
+
+            // create the item.
+            DataChangeMonitoredItem datachangeItem = monitoredNode.RestoreDataChangeItem(storedMonitoredItem);
+
+            if (samplingRequired)
+            {
+                CreateSampledItem(storedMonitoredItem.SamplingInterval, datachangeItem);
+            }
+
+            // update monitored item list.
+            monitoredItem = datachangeItem;
+
+            return true;
+        }
+
+        /// <summary>
         /// Creates a new set of monitored items for a set of variables.
         /// </summary>
         /// <remarks>
@@ -2458,6 +2612,7 @@ namespace Opc.Ua.Sample
             DiagnosticsMasks diagnosticsMasks,
             TimestampsToReturn timestampsToReturn,
             MonitoredItemCreateRequest itemToCreate,
+            bool createDurable,
             ref long globalIdCounter,
             out MonitoringFilterResult filterError,
             out IMonitoredItem monitoredItem)
@@ -3088,7 +3243,7 @@ namespace Opc.Ua.Sample
         #endregion
 
         #region Private Fields
-        private object m_lock = new object();
+        private readonly object m_lock = new object();
         private IServerInternal m_server;
         private ServerSystemContext m_systemContext;
         private IList<string> m_namespaceUris;

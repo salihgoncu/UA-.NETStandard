@@ -38,6 +38,7 @@ using Opc.Ua;
 using Opc.Ua.Server;
 using Opc.Ua.Sample;
 using System.Reflection;
+using System.Globalization;
 
 namespace MemoryBuffer
 {
@@ -152,7 +153,7 @@ namespace MemoryBuffer
         }
 
         /// <summary>
-        /// Loads a node set from a file or resource and addes them to the set of predefined nodes.
+        /// Loads a node set from a file or resource and adds them to the set of predefined nodes.
         /// </summary>
         protected override NodeStateCollection LoadPredefinedNodes(ISystemContext context)
         {
@@ -234,7 +235,7 @@ namespace MemoryBuffer
                     }
 
                     // check range on offset.
-                    uint offset = Convert.ToUInt32(offsetText);
+                    uint offset = Convert.ToUInt32(offsetText, CultureInfo.InvariantCulture);
 
                     if (offset >= buffer.SizeInBytes.Value)
                     {
@@ -268,6 +269,7 @@ namespace MemoryBuffer
             DiagnosticsMasks diagnosticsMasks,
             TimestampsToReturn timestampsToReturn,
             MonitoredItemCreateRequest itemToCreate,
+            bool createDurable,
             ref long globalIdCounter,
             out MonitoringFilterResult filterError,
             out IMonitoredItem monitoredItem)
@@ -288,6 +290,7 @@ namespace MemoryBuffer
                     diagnosticsMasks,
                     timestampsToReturn,
                     itemToCreate,
+                    createDurable,
                     ref globalIdCounter,
                     out filterError,
                     out monitoredItem);
@@ -366,7 +369,8 @@ namespace MemoryBuffer
                 timestampsToReturn,
                 itemToCreate.MonitoringMode,
                 itemToCreate.RequestedParameters.ClientHandle,
-                samplingInterval);
+                samplingInterval,
+                createDurable);
 
             // report the initial value.
             datachangeItem.QueueValue(initialValue, null);
@@ -375,6 +379,50 @@ namespace MemoryBuffer
             monitoredItem = datachangeItem;
 
             return ServiceResult.Good;
+        }
+
+        /// <summary>
+        /// Restore a single monitored Item after a restart
+        /// </summary>
+        /// <returns>true if sucesfully restored</returns>
+        protected override bool RestoreMonitoredItem(
+            ServerSystemContext context,
+            NodeState source,
+            IStoredMonitoredItem storedMonitoredItem,
+            out IMonitoredItem monitoredItem)
+        {
+            monitoredItem = null;
+
+            MemoryTagState tag = source as MemoryTagState;
+
+            // use default behavior for non-tag sources.
+            if (tag == null)
+            {
+                return base.RestoreMonitoredItem(
+                    context,
+                    source,
+                    storedMonitoredItem,
+                    out monitoredItem);
+            }
+
+            // get the monitored node for the containing buffer.
+            MemoryBufferState buffer = tag.Parent as MemoryBufferState;
+
+            if (buffer == null)
+            {
+                return false;
+            }
+
+            // create the item.
+            MemoryBufferMonitoredItem datachangeItem = buffer.RestoreDataChangeItem(
+                context as ServerSystemContext,
+                tag,
+                storedMonitoredItem);
+
+            // update monitored item list.
+            monitoredItem = datachangeItem;
+
+            return true;
         }
 
         /// <summary>

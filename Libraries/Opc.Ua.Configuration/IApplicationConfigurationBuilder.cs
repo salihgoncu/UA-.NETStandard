@@ -1,5 +1,5 @@
 /* ========================================================================
- * Copyright (c) 2005-2021 The OPC Foundation, Inc. All rights reserved.
+ * Copyright (c) 2005-2024 The OPC Foundation, Inc. All rights reserved.
  *
  * OPC Foundation MIT License 1.00
  * 
@@ -29,6 +29,7 @@
 
 using System.Threading.Tasks;
 using System.Xml;
+using System;
 
 namespace Opc.Ua.Configuration
 {
@@ -51,7 +52,7 @@ namespace Opc.Ua.Configuration
     };
 
     /// <summary>
-    /// The client or server configuration types to chose.
+    /// The client or server configuration types to choose.
     /// </summary>
     public interface IApplicationConfigurationBuilderTypes :
         IApplicationConfigurationBuilderTransportQuotas,
@@ -102,6 +103,16 @@ namespace Opc.Ua.Configuration
         /// <remarks>applies to <see cref="TransportQuotas.MaxBufferSize"/></remarks>
         /// <param name="maxBufferSize">The max buffer size.</param>
         IApplicationConfigurationBuilderTransportQuotas SetMaxBufferSize(int maxBufferSize);
+
+        /// <inheritdoc cref="TransportQuotas.MaxEncodingNestingLevels"/>
+        /// <remarks>applies to <see cref="TransportQuotas.MaxEncodingNestingLevels"/></remarks>
+        /// <param name="maxEncodingNestingLevels"></param>
+        IApplicationConfigurationBuilderTransportQuotas SetMaxEncodingNestingLevels(int maxEncodingNestingLevels);
+
+        /// <inheritdoc cref="TransportQuotas.MaxDecoderRecoveries"/>
+        /// <remarks>applies to <see cref="TransportQuotas.MaxDecoderRecoveries"/></remarks>
+        /// <param name="maxDecoderRecoveries"></param>
+        IApplicationConfigurationBuilderTransportQuotas SetMaxDecoderRecoveries(int maxDecoderRecoveries);
 
         /// <inheritdoc cref="TransportQuotas.ChannelLifetime"/>
         /// <remarks>applies to <see cref="TransportQuotas.ChannelLifetime"/></remarks>
@@ -155,6 +166,11 @@ namespace Opc.Ua.Configuration
 
         /// <inheritdoc cref="ServerConfiguration.MaxSessionCount"/>
         IApplicationConfigurationBuilderServerOptions SetMaxSessionCount(int maxSessionCount);
+
+        /// <inheritdoc cref="ServerConfiguration.MaxChannelCount"/>
+        /// <remarks>applies to <see cref="ServerConfiguration.MaxChannelCount"/></remarks>
+        /// <param name="maxChannelCount">The lifetime.</param>
+        IApplicationConfigurationBuilderServerOptions SetMaxChannelCount(int maxChannelCount);
 
         /// <inheritdoc cref="ServerConfiguration.MinSessionTimeout"/>
         IApplicationConfigurationBuilderServerOptions SetMinSessionTimeout(int minSessionTimeout);
@@ -250,6 +266,22 @@ namespace Opc.Ua.Configuration
 
         /// <inheritdoc cref="ServerConfiguration.AuditingEnabled"/>
         IApplicationConfigurationBuilderServerOptions SetAuditingEnabled(bool auditingEnabled);
+
+        /// <inheritdoc cref="ServerConfiguration.HttpsMutualTls"/>
+        IApplicationConfigurationBuilderServerOptions SetHttpsMutualTls(bool mTlsEnabled);
+
+        /// <inheritdoc cref="ServerConfiguration.DurableSubscriptionsEnabled"/>
+        IApplicationConfigurationBuilderServerOptions SetDurableSubscriptionsEnabled(bool durableSubscriptionsEnabled);
+
+        /// <inheritdoc cref="ServerConfiguration.MaxDurableNotificationQueueSize"/>
+        IApplicationConfigurationBuilderServerOptions SetMaxDurableNotificationQueueSize(int maxDurableNotificationQueueSize);
+
+        /// <inheritdoc cref="ServerConfiguration.MaxDurableEventQueueSize"/>
+        IApplicationConfigurationBuilderServerOptions SetMaxDurableEventQueueSize(int maxDurableEventQueueSize);
+
+        /// <inheritdoc cref="ServerConfiguration.MaxDurableSubscriptionLifetimeInHours"/>
+        IApplicationConfigurationBuilderServerOptions SetMaxDurableSubscriptionLifetime(int maxDurableSubscriptionLifetimeInHours);
+
     }
 
     /// <summary>
@@ -339,6 +371,22 @@ namespace Opc.Ua.Configuration
         IApplicationConfigurationBuilderServerSelected AddSignAndEncryptPolicies(bool addPolicies = true);
 
         /// <summary>
+        /// Add the ECCsign security policies to the server configuration.
+        /// </summary>
+        /// <remarks>
+        /// The policies are only added if the platform supports the ECC policies.
+        /// </remarks>
+        IApplicationConfigurationBuilderServerSelected AddEccSignPolicies();
+
+        /// <summary>
+        /// Add the ECC sign and encrypt security policies to the server configuration.
+        /// </summary>
+        /// <remarks>
+        /// The policies are only added if the platform supports the ECC policies.
+        /// </remarks>
+        IApplicationConfigurationBuilderServerSelected AddEccSignAndEncryptPolicies();
+
+        /// <summary>
         /// Add the specified security policy with the specified security mode.
         /// </summary>
         /// <param name="securityMode">The message security mode to add the policy to.</param>
@@ -376,10 +424,29 @@ namespace Opc.Ua.Configuration
         /// <param name="pkiRoot">The path to the pki root. By default all cert stores use the pki root.</param>
         /// <param name="appRoot">The path to the app cert store, if different than the pki root.</param>
         /// <param name="rejectedRoot">The path to the rejected certificate store.</param>
+        [Obsolete("Use AddSecurityConfiguration(CertificateIdentifierCollection certIdList, string pkiRoot = null, string rejectedRoot = null) instead.")]
         IApplicationConfigurationBuilderSecurityOptions AddSecurityConfiguration(
             string subjectName,
             string pkiRoot = null,
             string appRoot = null,
+            string rejectedRoot = null
+            );
+        
+        /// <summary>
+        /// Add the security configuration.
+        /// </summary>
+        /// <remarks>
+        /// The pki root path default to the certificate store
+        /// location as defined in <see cref="CertificateStoreIdentifier.DefaultPKIRoot"/>
+        /// A <see cref="CertificateStoreType"/> defaults to the corresponding default store location.
+        /// </remarks>
+        /// <param name="certIdList">A list of Certificate identifiers</param>
+        /// <param name="pkiRoot">The path to the pki root. By default all cert stores use the pki root.</param>
+        /// <param name="rejectedRoot">The path to the rejected certificate store.</param>
+
+        IApplicationConfigurationBuilderSecurityOptions AddSecurityConfiguration(
+            CertificateIdentifierCollection certIdList,
+            string pkiRoot = null,
             string rejectedRoot = null
             );
 
@@ -432,10 +499,31 @@ namespace Opc.Ua.Configuration
     /// Add security options to the configuration.
     /// </summary>
     public interface IApplicationConfigurationBuilderSecurityOptions :
+        IApplicationConfigurationBuilderGlobalConfiguration,
         IApplicationConfigurationBuilderTraceConfiguration,
         IApplicationConfigurationBuilderExtension,
         IApplicationConfigurationBuilderCreate
     {
+        /// <summary>
+        /// The certificate types that should be supported.
+        /// </summary>
+        /// <remarks>
+        /// At this time the following types are supported, if the platform OS and .NET version can handle it.
+        /// Rsa,nistP256,nistP384,brainpoolP256r1,brainpoolP384r1
+        /// </remarks>
+        /// <param name="certIdList">A list of Certificate identifiers</param>
+        IApplicationConfigurationBuilderSecurityOptions SetApplicationCertificates(CertificateIdentifierCollection certIdList);
+
+        /// <summary>
+        /// The number of rejected certificates to keep in the store.
+        /// </summary>
+        /// <param name="maxRejectedCertificates">
+        /// The number of certificates to keep in the rejected store before it is updated.
+        /// <see langword="0"/> to keep all rejected certificates.
+        /// A negative number to keep no history.
+        /// </param>
+        IApplicationConfigurationBuilderSecurityOptions SetMaxRejectedCertificates(int maxRejectedCertificates);
+
         /// <summary>
         /// Whether an unknown application certificate should be accepted
         /// once all other security checks passed.
@@ -515,6 +603,20 @@ namespace Opc.Ua.Configuration
     }
 
     /// <summary>
+    /// Add some global configuration settings.
+    /// </summary>
+    public interface IApplicationConfigurationBuilderGlobalConfiguration :
+        IApplicationConfigurationBuilderCreate,
+        IApplicationConfigurationBuilderTraceConfiguration
+    {
+        /// <summary>
+        /// Set the high resolution clock to disabled or enabled.
+        /// </summary>
+        /// <param name="hiResClockDisabled"><value><c>true</c> if high resolution clock is disabled; otherwise, <c>false</c>.</value></param>
+        IApplicationConfigurationBuilderGlobalConfiguration SetHiResClockDisabled(bool hiResClockDisabled);
+    }
+
+    /// <summary>
     /// Add the trace configuration.
     /// </summary>
     public interface IApplicationConfigurationBuilderTraceConfiguration :
@@ -527,7 +629,7 @@ namespace Opc.Ua.Configuration
         IApplicationConfigurationBuilderTraceConfiguration SetDeleteOnLoad(bool deleteOnLoad);
 
         /// <inheritdoc cref="TraceConfiguration.TraceMasks"/>
-        IApplicationConfigurationBuilderTraceConfiguration SetTraceMasks(int TraceMasks);
+        IApplicationConfigurationBuilderTraceConfiguration SetTraceMasks(int traceMasks);
     }
 
     /// <summary>

@@ -27,6 +27,8 @@
  * http://opcfoundation.org/License/MIT/1.00/
  * ======================================================================*/
 
+using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Opc.Ua.Security.Certificates;
@@ -35,15 +37,15 @@ namespace Opc.Ua.Gds.Server
 {
     public class X509Certificate2KeyPair
     {
-        public readonly X509Certificate2 Certificate;
-        public readonly string PrivateKeyFormat;
-        public readonly byte[] PrivateKey;
+        public X509Certificate2 Certificate { get; }
+        public string PrivateKeyFormat { get; }
+        public byte[] PrivateKey { get; }
 
         public X509Certificate2KeyPair(X509Certificate2 certificate, string privateKeyFormat, byte[] privateKey)
         {
             if (certificate.HasPrivateKey)
             {
-                certificate = new X509Certificate2(certificate.RawData);
+                certificate = X509CertificateLoader.LoadCertificate(certificate.RawData);
             }
             Certificate = certificate;
             PrivateKeyFormat = privateKeyFormat;
@@ -57,20 +59,24 @@ namespace Opc.Ua.Gds.Server
     public interface ICertificateGroup
     {
         NodeId Id { get; set; }
-        NodeId CertificateType { get; set; }
+        NodeIdCollection CertificateTypes { get; set; }
+        ConcurrentDictionary<NodeId, X509Certificate2> Certificates { get; }
         CertificateGroupConfiguration Configuration { get; }
-        X509Certificate2 Certificate { get; set; }
+        CertificateStoreIdentifier AuthoritiesStore { get; }
+        CertificateStoreIdentifier IssuerCertificatesStore { get; }
         TrustListState DefaultTrustList { get; set; }
         bool UpdateRequired { get; set; }
 
-        CertificateGroup Create(
-            string path,
-            CertificateGroupConfiguration certificateGroupConfiguration);
+        ICertificateGroup Create(
+            string authoritiesStorePath,
+            CertificateGroupConfiguration certificateGroupConfiguration,
+            [Optional] string issuerCertificatesStorePath);
 
         Task Init();
 
         Task<X509Certificate2> CreateCACertificateAsync(
-            string subjectName
+            string subjectName,
+            NodeId certificateType
             );
 
         Task<X509CRL> RevokeCertificateAsync(
@@ -84,12 +90,14 @@ namespace Opc.Ua.Gds.Server
 
         Task<X509Certificate2> SigningRequestAsync(
             ApplicationRecordDataType application,
+            NodeId certificateType,
             string[] domainNames,
             byte[] certificateRequest
             );
 
         Task<X509Certificate2KeyPair> NewKeyPairRequestAsync(
             ApplicationRecordDataType application,
+            NodeId certificateType,
             string subjectName,
             string[] domainNames,
             string privateKeyFormat,

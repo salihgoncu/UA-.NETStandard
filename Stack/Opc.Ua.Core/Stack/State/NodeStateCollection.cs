@@ -147,7 +147,13 @@ namespace Opc.Ua
             new AliasToUse(BrowseNames.HasCondition, ReferenceTypeIds.HasCondition),
             new AliasToUse(BrowseNames.HasGuard, ReferenceTypeIds.HasGuard),
             new AliasToUse(BrowseNames.HasAddIn, ReferenceTypeIds.HasAddIn),
-            new AliasToUse(BrowseNames.HasInterface, ReferenceTypeIds.HasInterface)
+            new AliasToUse(BrowseNames.HasInterface, ReferenceTypeIds.HasInterface),
+            new AliasToUse(BrowseNames.GeneratesEvent, ReferenceTypeIds.GeneratesEvent),
+            new AliasToUse(BrowseNames.AlwaysGeneratesEvent, ReferenceTypeIds.AlwaysGeneratesEvent),
+            new AliasToUse(BrowseNames.HasOrderedComponent, ReferenceTypeIds.HasOrderedComponent),
+            new AliasToUse(BrowseNames.HasAlarmSuppressionGroup, ReferenceTypeIds.HasAlarmSuppressionGroup),
+            new AliasToUse(BrowseNames.AlarmGroupMember, ReferenceTypeIds.AlarmGroupMember),
+            new AliasToUse(BrowseNames.AlarmSuppressionGroupMember, ReferenceTypeIds.AlarmSuppressionGroupMember)
         };
         #endregion
 
@@ -259,13 +265,13 @@ namespace Opc.Ua
         /// </summary>
         public void LoadFromBinary(ISystemContext context, Stream istrm, bool updateTables)
         {
-            ServiceMessageContext messageContext = new ServiceMessageContext();
+            ServiceMessageContext messageContext = new ServiceMessageContext {
+                NamespaceUris = context.NamespaceUris,
+                ServerUris = context.ServerUris,
+                Factory = context.EncodeableFactory
+            };
 
-            messageContext.NamespaceUris = context.NamespaceUris;
-            messageContext.ServerUris = context.ServerUris;
-            messageContext.Factory = context.EncodeableFactory;
-
-            using (BinaryDecoder decoder = new BinaryDecoder(istrm, messageContext))
+            using (var decoder = new BinaryDecoder(istrm, messageContext))
             {
                 // check if a namespace table was provided.
                 NamespaceTable namespaceUris = new NamespaceTable();
@@ -338,61 +344,62 @@ namespace Opc.Ua
 
             using (XmlReader reader = XmlReader.Create(istrm, Utils.DefaultXmlReaderSettings()))
             {
-                XmlDecoder decoder = new XmlDecoder(null, reader, messageContext);
-
-                NamespaceTable namespaceUris = new NamespaceTable();
-
-                if (!decoder.LoadStringTable("NamespaceUris", "NamespaceUri", namespaceUris))
+                using (XmlDecoder decoder = new XmlDecoder(null, reader, messageContext))
                 {
-                    namespaceUris = null;
-                }
+                    NamespaceTable namespaceUris = new NamespaceTable();
 
-                // update namespace table.
-                if (updateTables)
-                {
-                    if (namespaceUris != null && context.NamespaceUris != null)
+                    if (!decoder.LoadStringTable("NamespaceUris", "NamespaceUri", namespaceUris))
                     {
-                        for (int ii = 0; ii < namespaceUris.Count; ii++)
+                        namespaceUris = null;
+                    }
+
+                    // update namespace table.
+                    if (updateTables)
+                    {
+                        if (namespaceUris != null && context.NamespaceUris != null)
                         {
-                            context.NamespaceUris.GetIndexOrAppend(namespaceUris.GetString((uint)ii));
+                            for (int ii = 0; ii < namespaceUris.Count; ii++)
+                            {
+                                context.NamespaceUris.GetIndexOrAppend(namespaceUris.GetString((uint)ii));
+                            }
                         }
                     }
-                }
 
-                StringTable serverUris = new StringTable();
+                    StringTable serverUris = new StringTable();
 
-                if (!decoder.LoadStringTable("ServerUris", "ServerUri", context.ServerUris))
-                {
-                    serverUris = null;
-                }
-
-                // update server table.
-                if (updateTables)
-                {
-                    if (serverUris != null && context.ServerUris != null)
+                    if (!decoder.LoadStringTable("ServerUris", "ServerUri", context.ServerUris))
                     {
-                        for (int ii = 0; ii < serverUris.Count; ii++)
+                        serverUris = null;
+                    }
+
+                    // update server table.
+                    if (updateTables)
+                    {
+                        if (serverUris != null && context.ServerUris != null)
                         {
-                            context.ServerUris.GetIndexOrAppend(serverUris.GetString((uint)ii));
+                            for (int ii = 0; ii < serverUris.Count; ii++)
+                            {
+                                context.ServerUris.GetIndexOrAppend(serverUris.GetString((uint)ii));
+                            }
                         }
                     }
+
+                    // set mapping.
+                    decoder.SetMappingTables(namespaceUris, serverUris);
+
+                    decoder.PushNamespace(Namespaces.OpcUaXsd);
+
+                    NodeState state = NodeState.LoadNode(context, decoder);
+
+                    while (state != null)
+                    {
+                        this.Add(state);
+
+                        state = NodeState.LoadNode(context, decoder);
+                    }
+
+                    decoder.Close();
                 }
-
-                // set mapping.
-                decoder.SetMappingTables(namespaceUris, serverUris);
-
-                decoder.PushNamespace(Namespaces.OpcUaXsd);
-
-                NodeState state = NodeState.LoadNode(context, decoder);
-
-                while (state != null)
-                {
-                    this.Add(state);
-
-                    state = NodeState.LoadNode(context, decoder);
-                }
-
-                decoder.Close();
             }
         }
 
@@ -455,7 +462,7 @@ namespace Opc.Ua
     }
 
     /// <summary>
-    /// A class that creates instances of nodes based on the paramters provided.
+    /// A class that creates instances of nodes based on the parameters provided.
     /// </summary>
     public class NodeStateFactory
     {

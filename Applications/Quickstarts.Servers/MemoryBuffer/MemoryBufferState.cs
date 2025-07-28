@@ -190,7 +190,7 @@ namespace MemoryBuffer
         }
 
         /// <summary>
-        /// Creates an object which can browser the tags in the buffer.
+        /// Creates an object which can browse the tags in the buffer.
         /// </summary>
         public override INodeBrowser CreateBrowser(
             ISystemContext context,
@@ -446,7 +446,8 @@ namespace MemoryBuffer
             TimestampsToReturn timestampsToReturn,
             MonitoringMode monitoringMode,
             uint clientHandle,
-            double samplingInterval)
+            double samplingInterval,
+            bool createDurable)
 
         /*
         ISystemContext context,
@@ -479,7 +480,8 @@ namespace MemoryBuffer
                     samplingInterval,
                     0,
                     false,
-                    0);
+                    0,
+                    createDurable);
 
                 /*
                 MemoryBufferMonitoredItem monitoredItem = new MemoryBufferMonitoredItem(
@@ -494,40 +496,68 @@ namespace MemoryBuffer
                     samplingInterval);
                 */
 
-                if (itemToMonitor.AttributeId != Attributes.Value)
-                {
-                    m_nonValueMonitoredItems.Add(monitoredItem.Id, monitoredItem);
-                    return monitoredItem;
-                }
-
-                int elementCount = (int)(SizeInBytes.Value / ElementSize);
-
-                if (m_monitoringTable == null)
-                {
-                    m_monitoringTable = new MemoryBufferMonitoredItem[elementCount][];
-                    m_scanTimer = new Timer(DoScan, null, 100, 100);
-                }
-
-                int elementOffet = (int)(tag.Offset / ElementSize);
-
-                MemoryBufferMonitoredItem[] monitoredItems = m_monitoringTable[elementOffet];
-
-                if (monitoredItems == null)
-                {
-                    monitoredItems = new MemoryBufferMonitoredItem[1];
-                }
-                else
-                {
-                    monitoredItems = new MemoryBufferMonitoredItem[monitoredItems.Length + 1];
-                    m_monitoringTable[elementOffet].CopyTo(monitoredItems, 0);
-                }
-
-                monitoredItems[monitoredItems.Length - 1] = monitoredItem;
-                m_monitoringTable[elementOffet] = monitoredItems;
-                m_itemCount++;
+                AddMonitoredItemInternal(monitoredItem, tag);
 
                 return monitoredItem;
             }
+        }
+
+        /// <summary>
+        /// Restores data change monitored item after a server restart.
+        /// </summary>
+        public MemoryBufferMonitoredItem RestoreDataChangeItem(
+            ServerSystemContext context,
+            MemoryTagState tag,
+           IStoredMonitoredItem storedMonitoredItem)
+        {
+            lock (m_dataLock)
+            {
+                MemoryBufferMonitoredItem monitoredItem = new MemoryBufferMonitoredItem(
+                    m_server,
+                    m_nodeManager,
+                    this,
+                    tag.Offset,
+                    storedMonitoredItem);
+
+                AddMonitoredItemInternal(monitoredItem, tag);
+
+                return monitoredItem;
+            }
+        }
+
+        private void AddMonitoredItemInternal(MemoryBufferMonitoredItem monitoredItem, MemoryTagState tag)
+        {
+            if (monitoredItem.AttributeId != Attributes.Value)
+            {
+                m_nonValueMonitoredItems.Add(monitoredItem.Id, monitoredItem);
+                return;
+            }
+
+            int elementCount = (int)(SizeInBytes.Value / ElementSize);
+
+            if (m_monitoringTable == null)
+            {
+                m_monitoringTable = new MemoryBufferMonitoredItem[elementCount][];
+                m_scanTimer = new Timer(DoScan, null, 100, 100);
+            }
+
+            int elementOffet = (int)(tag.Offset / ElementSize);
+
+            MemoryBufferMonitoredItem[] monitoredItems = m_monitoringTable[elementOffet];
+
+            if (monitoredItems == null)
+            {
+                monitoredItems = new MemoryBufferMonitoredItem[1];
+            }
+            else
+            {
+                monitoredItems = new MemoryBufferMonitoredItem[monitoredItems.Length + 1];
+                m_monitoringTable[elementOffet].CopyTo(monitoredItems, 0);
+            }
+
+            monitoredItems[monitoredItems.Length - 1] = monitoredItem;
+            m_monitoringTable[elementOffet] = monitoredItems;
+            m_itemCount++;
         }
 
         /// <summary>
@@ -678,7 +708,7 @@ namespace MemoryBuffer
         #endregion
 
         #region Private Fields
-        private object m_dataLock = new object();
+        private readonly object m_dataLock = new object();
         private IServerInternal m_server;
         private INodeManager m_nodeManager;
         private MemoryBufferMonitoredItem[][] m_monitoringTable;

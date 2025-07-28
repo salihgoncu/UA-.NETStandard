@@ -108,7 +108,7 @@ namespace Opc.Ua
                 m_nodeId = new NodeId(nodeId);
             }
 
-            if (!String.IsNullOrEmpty(namespaceUri))
+            if (!string.IsNullOrEmpty(namespaceUri))
             {
                 SetNamespaceUri(namespaceUri);
             }
@@ -133,7 +133,7 @@ namespace Opc.Ua
                 m_nodeId = new NodeId(nodeId);
             }
 
-            if (!String.IsNullOrEmpty(namespaceUri))
+            if (!string.IsNullOrEmpty(namespaceUri))
             {
                 SetNamespaceUri(namespaceUri);
             }
@@ -163,7 +163,7 @@ namespace Opc.Ua
         /// of the node we are wrapping.
         /// </remarks>
         /// <param name="value">The numeric id of the node we are wrapping</param>
-        /// <param name="namespaceIndex">The namspace index that this node belongs to</param>
+        /// <param name="namespaceIndex">The namespace index that this node belongs to</param>
         public ExpandedNodeId(uint value, ushort namespaceIndex)
         {
             Initialize();
@@ -235,7 +235,7 @@ namespace Opc.Ua
         /// </summary>
         /// <remarks>
         /// Creates a new instance of the class while specifying the <see cref="Guid"/> value
-        /// of the node and the namesapceIndex we are wrapping.
+        /// of the node and the namespaceIndex we are wrapping.
         /// </remarks>
         /// <param name="value">The Guid value of the node we are wrapping</param>
         /// <param name="namespaceIndex">The index of the namespace that this node should belong to</param>
@@ -417,7 +417,7 @@ namespace Opc.Ua
         {
             get
             {
-                if (!String.IsNullOrEmpty(m_namespaceUri))
+                if (!string.IsNullOrEmpty(m_namespaceUri))
                 {
                     return false;
                 }
@@ -441,7 +441,7 @@ namespace Opc.Ua
         {
             get
             {
-                if (!String.IsNullOrEmpty(m_namespaceUri) || m_serverIndex > 0)
+                if (!string.IsNullOrEmpty(m_namespaceUri) || m_serverIndex > 0)
                 {
                     return true;
                 }
@@ -473,7 +473,7 @@ namespace Opc.Ua
         {
             get
             {
-                return Format();
+                return Format(CultureInfo.InvariantCulture);
             }
             set
             {
@@ -514,25 +514,25 @@ namespace Opc.Ua
         /// Note: Only information already included in the ExpandedNodeId-Instance will be included in the result
         /// </para>
         /// </remarks>
-        public string Format()
+        public string Format(IFormatProvider formatProvider)
         {
             StringBuilder buffer = new StringBuilder();
-            Format(buffer);
+            Format(formatProvider ?? CultureInfo.InvariantCulture, buffer);
             return buffer.ToString();
         }
 
         /// <summary>
         /// Formats the node ids as string and adds it to the buffer.
         /// </summary>
-        public void Format(StringBuilder buffer)
+        public void Format(IFormatProvider formatProvider, StringBuilder buffer)
         {
             if (m_nodeId != null)
             {
-                Format(buffer, m_nodeId.Identifier, m_nodeId.IdType, m_nodeId.NamespaceIndex, m_namespaceUri, m_serverIndex);
+                Format(formatProvider, buffer, m_nodeId.Identifier, m_nodeId.IdType, m_nodeId.NamespaceIndex, m_namespaceUri, m_serverIndex);
             }
             else
             {
-                Format(buffer, null, IdType.Numeric, 0, m_namespaceUri, m_serverIndex);
+                Format(formatProvider, buffer, null, IdType.Numeric, 0, m_namespaceUri, m_serverIndex);
             }
         }
 
@@ -545,42 +545,34 @@ namespace Opc.Ua
             IdType identifierType,
             ushort namespaceIndex,
             string namespaceUri,
+            uint serverIndex) =>
+            Format(CultureInfo.InvariantCulture, buffer, identifier, identifierType, namespaceIndex, namespaceUri, serverIndex);
+
+        /// <summary>
+        /// Formats the node ids as string and adds it to the buffer.
+        /// </summary>
+        public static void Format(
+            IFormatProvider formatProvider,
+            StringBuilder buffer,
+            object identifier,
+            IdType identifierType,
+            ushort namespaceIndex,
+            string namespaceUri,
             uint serverIndex)
         {
             if (serverIndex != 0)
             {
-                buffer.AppendFormat(CultureInfo.InvariantCulture, "svr={0};", serverIndex);
+                buffer.AppendFormat(formatProvider, "svr={0};", serverIndex);
             }
 
-            if (!String.IsNullOrEmpty(namespaceUri))
+            if (!string.IsNullOrEmpty(namespaceUri))
             {
                 buffer.Append("nsu=");
-
-                for (int ii = 0; ii < namespaceUri.Length; ii++)
-                {
-                    char ch = namespaceUri[ii];
-
-                    switch (ch)
-                    {
-                        case ';':
-                        case '%':
-                        {
-                            buffer.AppendFormat(CultureInfo.InvariantCulture, "%{0:X2}", Convert.ToInt16(ch));
-                            break;
-                        }
-
-                        default:
-                        {
-                            buffer.Append(ch);
-                            break;
-                        }
-                    }
-                }
-
+                buffer.Append(Utils.EscapeUri(namespaceUri));
                 buffer.Append(';');
             }
 
-            NodeId.Format(buffer, identifier, identifierType, namespaceIndex);
+            NodeId.Format(formatProvider, buffer, identifier, identifierType, namespaceIndex);
         }
         #endregion
 
@@ -604,7 +596,7 @@ namespace Opc.Ua
             // translate the namespace uri.
             ushort namespaceIndex = 0;
 
-            if (!String.IsNullOrEmpty(uri))
+            if (!string.IsNullOrEmpty(uri))
             {
                 int index = targetNamespaces.GetIndex(uri);
 
@@ -649,7 +641,7 @@ namespace Opc.Ua
             try
             {
                 // check for null.
-                if (String.IsNullOrEmpty(text))
+                if (string.IsNullOrEmpty(text))
                 {
                     return ExpandedNodeId.Null;
                 }
@@ -685,7 +677,7 @@ namespace Opc.Ua
 
                         ushort value = 0;
 
-                        int digit = kHexDigits.IndexOf(Char.ToUpperInvariant(text[++ii]));
+                        int digit = kHexDigits.IndexOf(char.ToUpperInvariant(text[++ii]));
 
                         if (digit == -1)
                         {
@@ -695,7 +687,7 @@ namespace Opc.Ua
                         value += (ushort)digit;
                         value <<= 4;
 
-                        digit = kHexDigits.IndexOf(Char.ToUpperInvariant(text[++ii]));
+                        digit = kHexDigits.IndexOf(char.ToUpperInvariant(text[++ii]));
 
                         if (digit == -1)
                         {
@@ -778,7 +770,7 @@ namespace Opc.Ua
                 {
                     if (this.NamespaceUri != null)
                     {
-                        return String.CompareOrdinal(NamespaceUri, expandedId.NamespaceUri);
+                        return string.CompareOrdinal(NamespaceUri, expandedId.NamespaceUri);
                     }
 
                     return -1;
@@ -935,7 +927,7 @@ namespace Opc.Ua
         {
             if (format == null)
             {
-                return Format();
+                return Format(formatProvider);
             }
 
             throw new FormatException(Utils.Format("Invalid format string: '{0}'.", format));
@@ -991,7 +983,7 @@ namespace Opc.Ua
             }
 
             // return a reference to the internal node id object.
-            if (String.IsNullOrEmpty(nodeId.m_namespaceUri) && nodeId.m_serverIndex == 0)
+            if (string.IsNullOrEmpty(nodeId.m_namespaceUri) && nodeId.m_serverIndex == 0)
             {
                 return nodeId.m_nodeId;
             }
@@ -1047,6 +1039,153 @@ namespace Opc.Ua
         #endregion
 
         #region Static Members
+        /// <summary>
+        /// Parses an ExpandedNodeId formatted as a string and converts it a local NodeId.
+        /// </summary>
+        /// <param name="context">The current context,</param>
+        /// <param name="text">The text to parse.</param>
+        /// <param name="options">The options to use when parsing the ExpandedNodeId.</param>
+        /// <returns>The local identifier.</returns>
+        /// <exception cref="ServiceResultException">Thrown if the namespace URI is not in the namespace table.</exception>
+        public static ExpandedNodeId Parse(IServiceMessageContext context, string text, NodeIdParsingOptions options = null)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return Null;
+            }
+
+            var originalText = text;
+            int serverIndex = 0;
+
+            if (text.StartsWith("svu=", StringComparison.Ordinal))
+            {
+                int index = text.IndexOf(';', 4);
+
+                if (index < 0)
+                {
+                    throw new ServiceResultException(StatusCodes.BadNodeIdInvalid, $"Invalid ExpandedNodeId ({originalText}).");
+                }
+
+                var serverUri = Utils.UnescapeUri(text.Substring(4, index - 4));
+                serverIndex = (options?.UpdateTables == true) ? context.ServerUris.GetIndexOrAppend(serverUri) : context.ServerUris.GetIndex(serverUri);
+
+                if (serverIndex < 0)
+                {
+                    throw new ServiceResultException(StatusCodes.BadNodeIdInvalid, $"No mapping to ServerIndex for ServerUri ({serverUri}).");
+                }
+
+                text = text.Substring(index + 1);
+            }
+            
+            if (text.StartsWith("svr=", StringComparison.Ordinal))
+            {
+                int index = text.IndexOf(';', 4);
+
+                if (index < 0)
+                {
+                    throw new ServiceResultException(StatusCodes.BadNodeIdInvalid, $"Invalid ExpandedNodeId ({originalText}).");
+                }
+
+                if (ushort.TryParse(text.Substring(4, index - 4), out ushort ns))
+                {
+                    serverIndex = ns;
+
+                    if (options.ServerMappings != null && options?.NamespaceMappings.Length < ns)
+                    {
+                        serverIndex = options.NamespaceMappings[ns];
+                    }
+                }
+
+                text = text.Substring(index + 1);
+            }
+
+            int namespaceIndex = 0;
+            string namespaceUri = null;
+
+            if (text.StartsWith("nsu=", StringComparison.Ordinal))
+            {
+                int index = text.IndexOf(';', 4);
+
+                if (index < 0)
+                {
+                    throw new ServiceResultException(StatusCodes.BadNodeIdInvalid, $"Invalid ExpandedNodeId ({originalText}).");
+                }
+
+                namespaceUri = Utils.UnescapeUri(text.Substring(4, index - 4));
+                namespaceIndex = (options?.UpdateTables == true) ? context.NamespaceUris.GetIndexOrAppend(namespaceUri) : context.NamespaceUris.GetIndex(namespaceUri);
+
+                text = text.Substring(index + 1);
+            }
+
+            var nodeId = NodeId.Parse(context, text, options);
+
+            if (namespaceIndex > 0)
+            {
+                return new ExpandedNodeId(
+                    nodeId.Identifier,
+                    (ushort)namespaceIndex,
+                    null,
+                    (uint)serverIndex);
+            }
+
+            return new ExpandedNodeId(nodeId, namespaceUri, (uint)serverIndex);
+        }
+
+        /// <summary>
+        /// Formats a NodeId as a string.
+        /// </summary>
+        /// <param name="context">The current context.</param>
+        /// <param name="useUris">The NamespaceUri and/or ServerUri is used instead of the indexes.</param>
+        /// <returns>The formatted identifier.</returns>
+        public string Format(IServiceMessageContext context, bool useUris = false)
+        {
+            if (NodeId.IsNull(m_nodeId))
+            {
+                return null;
+            }
+
+            var buffer = new StringBuilder();
+
+            if (m_serverIndex > 0)
+            {
+                if (useUris)
+                {
+                    var serverUri = context.ServerUris.GetString(m_serverIndex);
+
+                    if (!string.IsNullOrEmpty(serverUri))
+                    {
+                        buffer.Append("svu=");
+                        buffer.Append(Utils.EscapeUri(serverUri));
+                        buffer.Append(';');
+                    }
+                    else
+                    {
+                        buffer.Append("svr=");
+                        buffer.Append(m_serverIndex);
+                        buffer.Append(';');
+                    }
+                }
+                else
+                {
+                    buffer.Append("svr=");
+                    buffer.Append(m_serverIndex);
+                    buffer.Append(';');
+                }
+            }
+
+            if (!string.IsNullOrEmpty(m_namespaceUri))
+            {
+                buffer.Append("nsu=");
+                buffer.Append(Utils.EscapeUri(m_namespaceUri));
+                buffer.Append(';');
+            }
+
+            var id = m_nodeId.Format(context, useUris);
+            buffer.Append(id);
+
+            return buffer.ToString();
+        }
+
         /// <summary>
         /// Parses an absolute NodeId formatted as a string and converts it a local NodeId.
         /// </summary>

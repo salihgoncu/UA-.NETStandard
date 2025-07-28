@@ -33,6 +33,7 @@ using System.Numerics;
 using System.Security.Cryptography.X509Certificates;
 using NUnit.Framework;
 using Opc.Ua.Tests;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Opc.Ua.Security.Certificates.Tests
 {
@@ -55,7 +56,7 @@ namespace Opc.Ua.Security.Certificates.Tests
             CertificateAsset certAsset
             )
         {
-            using (var x509Cert = new X509Certificate2(certAsset.Cert))
+            using (var x509Cert = X509CertificateLoader.LoadCertificate(certAsset.Cert))
             {
                 Assert.NotNull(x509Cert);
                 TestContext.Out.WriteLine("CertificateAsset:");

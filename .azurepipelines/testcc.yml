@@ -3,10 +3,11 @@
 #
 parameters:
   configuration: 'Release'
-  framework: net6.0
+  framework: net8.0
   agent: 'linux'
   poolImage: 'ubuntu-22.04'
-  jobnamesuffix: 'net60cc'
+  jobnamesuffix: 'net80cc'
+  customtestarget: ''
 jobs:
 - job: testcc${{ parameters.jobnamesuffix }}
   displayName: Coverage ${{ parameters.agent }} ${{ parameters.configuration }}
@@ -14,38 +15,61 @@ jobs:
     DOTNET_CLI_TELEMETRY_OPTOUT: true
     DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
     disable.coverage.autogenerate: true
+    CustomTestTarget: ${{ parameters.customtestarget }}
+    ${{ if eq( parameters.customtestarget, '' ) }}: 
+      DotCliCommandline: '--framework ${{ parameters.framework }}'
+    ${{ else }}: 
+      DotCliCommandline: '/p:CustomTestTarget=${{ parameters.customtestarget }}'
   pool:
     vmImage: ${{ parameters.poolImage }}
   steps:
   - task: UseDotNet@2
-    displayName: 'Install .NET 6.0'
-    condition: and(eq('${{parameters.framework}}', 'net6.0'), ne(variables['poolImage'], 'windows-2022'))
+    displayName: 'Install .NET 8.0'
+    condition: eq('${{parameters.framework}}', 'net8.0')
     inputs:
       packageType: 'sdk'
-      version: '6.0.x'
-      includePreviewVersions: true
+      version: '8.0.x'
+  - task: UseDotNet@2
+    displayName: 'Install .NET 9.0'
+    inputs:
+      packageType: 'sdk'
+      version: '9.0.x'
   - task: NuGetToolInstaller@1
     inputs:
       versionSpec: '>=5.8.x'
+  - task: DownloadSecureFile@1
+    name: fuzzingartifacts
+    displayName: 'Download Fuzzing artifacts'
+    inputs:
+      secureFile: 'FuzzingArtifacts.zip'
   - task: PowerShell@2
     displayName: Versioning
     inputs:
       targetType: filePath
       filePath: ./.azurepipelines/set-version.ps1
+  - task: ExtractFiles@1
+    displayName: 'Extract Fuzzing artifacts'
+    condition: ne(variables['fuzzingartifacts.secureFilePath'], '')
+    inputs:
+      archiveFilePatterns: '$(Agent.TempDirectory)/FuzzingArtifacts.zip'
+      destinationFolder: ./Fuzzing/Encoders/Fuzz.Tests
+      cleanDestinationFolder: false
+      overwriteExistingFiles: true
+    continueOnError: true
   - task: DotNetCoreCLI@2
     displayName: Restore ${{ parameters.framework }}
     inputs:
       command: restore
       projects: 'UA Core Library.sln'
-      arguments: '--framework ${{ parameters.framework }} --configuration ${{ parameters.configuration }}'
+      arguments: '${{ variables.DotCliCommandline }} --configuration ${{ parameters.configuration }}'
   - task: DotNetCoreCLI@2
     displayName: Test ${{ parameters.framework }}
-    timeoutInMinutes: 45
+    timeoutInMinutes: 60
     inputs:
       command: test
       projects: 'UA Core Library.sln'
-      # note: /p:CollectCoverage=true is only used to disable deterministc builds
-      arguments: '--no-restore --framework ${{ parameters.framework }} --configuration ${{ parameters.configuration }} /p:CollectCoverage=true --collect:"XPlat Code Coverage" --settings ./Tests/coverlet.runsettings.xml --results-directory $(Agent.TempDirectory)'
+      # note: /p:CollectCoverage=true is only used to disable deterministic builds
+      arguments: '--no-restore ${{ variables.DotCliCommandline }} --configuration ${{ parameters.configuration }} /p:CollectCoverage=true --collect:"XPlat Code Coverage" --settings ./Tests/coverlet.runsettings.xml --results-directory $(Agent.TempDirectory)'
       publishTestResults: false
   - script: |
       bash <(curl -s https://codecov.io/bash) -s $(Agent.TempDirectory)
@@ -67,13 +91,10 @@ jobs:
 
     displayName: Create Code Coverage Report
     continueOnError: true
-  - task: PublishCodeCoverageResults@1
+  - task: PublishCodeCoverageResults@2
     displayName: 'Publish code coverage'
     inputs:
-      codeCoverageTool: Cobertura
       summaryFileLocation: '$(Build.SourcesDirectory)/CodeCoverage/Cobertura.xml'
-      reportDirectory: '$(Build.SourcesDirectory)/CodeCoverage'
-
     continueOnError: true
   - script: |
       bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r $REPORT_LOCATION --commit-uuid $COMMIT_UUID

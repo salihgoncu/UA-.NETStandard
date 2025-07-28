@@ -34,6 +34,8 @@ using System.Text;
 using System.Xml;
 using NUnit.Framework;
 using Opc.Ua.Tests;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+
 
 namespace Opc.Ua.Core.Tests.Stack.Schema
 {
@@ -75,7 +77,7 @@ namespace Opc.Ua.Core.Tests.Stack.Schema
 
         #region Test Methods
         /// <summary>
-        /// Test Structure Field ArrayDimensions attribute is correctly imported repsectively exported
+        /// Test Structure Field ArrayDimensions attribute is correctly imported respectively exported
         /// </summary>
         [Test]
         public void ArrayDimensionsValidationTest()

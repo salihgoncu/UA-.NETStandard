@@ -29,6 +29,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Opc.Ua.Test;
 
@@ -61,6 +62,7 @@ namespace Opc.Ua.Core.Tests
             return testDataSet;
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "SYSLIB1045:Convert to 'GeneratedRegexAttribute'.", Justification = "Test")]
         private ApplicationTestData RandomApplicationTestData()
         {
             // TODO: set to discoveryserver
@@ -97,12 +99,13 @@ namespace Opc.Ua.Core.Tests
                 ApplicationName = appName,
                 ApplicationUri = appUri,
                 DomainNames = domainNames,
-                Subject = String.Format("CN={0},O=OPC Foundation,DC={1}", appName, localhost),
+                Subject = Utils.Format("CN={0},O=OPC Foundation,DC={1}", appName, localhost),
                 PrivateKeyFormat = privateKeyFormat
             };
             return testData;
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "SYSLIB1045:Convert to 'GeneratedRegexAttribute'.", Justification = "Test")]
         private string RandomLocalHost()
         {
             string localhost = Regex.Replace(m_dataGenerator.GetRandomSymbol("en").Trim().ToLower(), @"[^\w\d]", "");
@@ -132,15 +135,15 @@ namespace Opc.Ua.Core.Tests
                 int random = m_randomSource.NextInt32(7);
                 if ((result.Count == 0) || (random & 1) == 0)
                 {
-                    result.Add(String.Format("opc.tcp://{0}:{1}/{2}", name, (port++).ToString(), appUri));
+                    result.Add(Utils.Format("opc.tcp://{0}:{1}/{2}", name, (port++).ToString(CultureInfo.InvariantCulture), appUri));
                 }
                 if ((random & 2) == 0)
                 {
-                    result.Add(String.Format("http://{0}:{1}/{2}", name, (port++).ToString(), appUri));
+                    result.Add(Utils.Format("http://{0}:{1}/{2}", name, (port++).ToString(CultureInfo.InvariantCulture), appUri));
                 }
                 if ((random & 4) == 0)
                 {
-                    result.Add(String.Format("opc.https://{0}:{1}/{2}", name, (port++).ToString(), appUri));
+                    result.Add(Utils.Format("opc.https://{0}:{1}/{2}", name, (port++).ToString(CultureInfo.InvariantCulture), appUri));
                 }
             }
             return result;

@@ -29,11 +29,16 @@
 
 #if ECC_SUPPORT
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using NUnit.Framework;
 using Opc.Ua.Tests;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+#if NETFRAMEWORK
+using Org.BouncyCastle.X509;
+#endif
 
 namespace Opc.Ua.Security.Certificates.Tests
 {
@@ -94,6 +99,7 @@ namespace Opc.Ua.Security.Certificates.Tests
                     .SetECCurve(eCCurveHash.Curve)
                     .CreateForECDsa())
                 {
+
                     Assert.NotNull(cert);
                     WriteCertificate(cert, $"Default cert with ECDsa {eCCurveHash.Curve.Oid.FriendlyName} {eCCurveHash.HashAlgorithmName} signature.");
                     Assert.AreEqual(eCCurveHash.HashAlgorithmName, Oids.GetHashAlgorithmName(cert.SignatureAlgorithm.Value));
@@ -101,13 +107,13 @@ namespace Opc.Ua.Security.Certificates.Tests
                     Assert.AreNotEqual(previousSerialNumber, cert.GetSerialNumber());
                     X509PfxUtils.VerifyECDsaKeyPair(cert, cert, true);
                     Assert.True(X509Utils.VerifySelfSigned(cert));
-                    CheckPEMWriter(cert);
+                    CheckPEMWriterReader(cert);
                 }
             }
         }
 
         /// <summary>
-        /// Create the default RSA certificate.
+        /// Create the default ECDsa certificate.
         /// </summary>
         [Theory, Repeat(10)]
         public void CreateSelfSignedForECDsaDefaultTest(ECCurveHashPair eccurveHashPair)
@@ -129,7 +135,7 @@ namespace Opc.Ua.Security.Certificates.Tests
                 Assert.NotNull(publicKey);
                 publicKey.ExportParameters(false);
             }
-            Assert.AreEqual(X509Defaults.HashAlgorithmName, Oids.GetHashAlgorithmName(cert.SignatureAlgorithm.Value));
+            Assert.AreEqual(eccurveHashPair.HashAlgorithmName, Oids.GetHashAlgorithmName(cert.SignatureAlgorithm.Value));
             Assert.GreaterOrEqual(DateTime.UtcNow, cert.NotBefore);
             Assert.GreaterOrEqual(DateTime.UtcNow.AddMonths(X509Defaults.LifeTime), cert.NotAfter.ToUniversalTime());
             TestUtils.ValidateSelSignedBasicConstraints(cert);
@@ -137,7 +143,7 @@ namespace Opc.Ua.Security.Certificates.Tests
             Assert.NotNull(keyUsage);
             X509PfxUtils.VerifyECDsaKeyPair(cert, cert, true);
             Assert.True(X509Utils.VerifySelfSigned(cert), "Verify self signed.");
-            CheckPEMWriter(cert);
+            CheckPEMWriterReader(cert);
         }
 
         [Theory, Repeat(10)]
@@ -173,7 +179,7 @@ namespace Opc.Ua.Security.Certificates.Tests
             TestUtils.ValidateSelSignedBasicConstraints(cert);
             X509PfxUtils.VerifyECDsaKeyPair(cert, cert, true);
             Assert.True(X509Utils.VerifySelfSigned(cert));
-            CheckPEMWriter(cert);
+            CheckPEMWriterReader(cert);
         }
 
         [Theory, Repeat(10)]
@@ -197,7 +203,7 @@ namespace Opc.Ua.Security.Certificates.Tests
             Assert.False(basicConstraintsExtension.HasPathLengthConstraint);
             X509PfxUtils.VerifyECDsaKeyPair(cert, cert, true);
             Assert.True(X509Utils.VerifySelfSigned(cert));
-            CheckPEMWriter(cert);
+            CheckPEMWriterReader(cert);
         }
 
         [Test]
@@ -302,7 +308,7 @@ namespace Opc.Ua.Security.Certificates.Tests
             {
                 var generator = X509SignatureGenerator.CreateForECDsa(ecdsaPrivateKey);
                 var cert = CertificateBuilder.Create("CN=App Cert")
-                    .SetIssuer(new X509Certificate2(signingCert.RawData))
+                    .SetIssuer(X509CertificateLoader.LoadCertificate(signingCert.RawData))
                     .CreateForRSA(generator);
                 Assert.NotNull(cert);
                 WriteCertificate(cert, "Default signed ECDsa cert");
@@ -314,7 +320,7 @@ namespace Opc.Ua.Security.Certificates.Tests
                 var generator = X509SignatureGenerator.CreateForECDsa(ecdsaPrivateKey);
                 var cert = CertificateBuilder.Create("CN=App Cert")
                     .SetHashAlgorithm(ecCurveHashPair.HashAlgorithmName)
-                    .SetIssuer(new X509Certificate2(signingCert.RawData))
+                    .SetIssuer(X509CertificateLoader.LoadCertificate(signingCert.RawData))
                     .SetECDsaPublicKey(ecdsaPublicKey)
                     .CreateForECDsa(generator);
                 Assert.NotNull(cert);
@@ -326,12 +332,12 @@ namespace Opc.Ua.Security.Certificates.Tests
                 var generator = X509SignatureGenerator.CreateForECDsa(ecdsaPrivateKey);
                 var cert = CertificateBuilder.Create("CN=App Cert")
                     .SetHashAlgorithm(ecCurveHashPair.HashAlgorithmName)
-                    .SetIssuer(new X509Certificate2(signingCert.RawData))
+                    .SetIssuer(X509CertificateLoader.LoadCertificate(signingCert.RawData))
                     .SetECCurve(ecCurveHashPair.Curve)
                     .CreateForECDsa(generator);
                 Assert.NotNull(cert);
                 WriteCertificate(cert, "Default signed RSA cert");
-                CheckPEMWriter(cert);
+                CheckPEMWriterReader(cert);
             }
 
             // ensure invalid path throws argument exception
@@ -346,23 +352,43 @@ namespace Opc.Ua.Security.Certificates.Tests
                 }
             });
         }
+
+        [Theory]
+        public void SetECDsaPublicKeyByteArray(
+            ECCurveHashPair ecCurveHashPair
+            )
+        {
+            // default signing cert with custom key
+            X509Certificate2 signingCert = CertificateBuilder.Create(Subject)
+                .SetCAConstraint()
+                .SetHashAlgorithm(HashAlgorithmName.SHA512)
+                .SetECCurve(ecCurveHashPair.Curve)
+                .CreateForECDsa();
+
+            WriteCertificate(signingCert, $"Signing ECDsa {signingCert.GetECDsaPublicKey().KeySize} cert");
+
+
+            using (ECDsa ecdsaPrivateKey = signingCert.GetECDsaPrivateKey())
+            using (ECDsa ecdsaPublicKey = signingCert.GetECDsaPublicKey())
+            {
+                byte[] pubKeyBytes = GetPublicKey(ecdsaPublicKey);
+
+                var generator = X509SignatureGenerator.CreateForECDsa(ecdsaPrivateKey);
+                var cert = CertificateBuilder.Create("CN=App Cert")
+                    .SetHashAlgorithm(ecCurveHashPair.HashAlgorithmName)
+                    .SetIssuer(X509CertificateLoader.LoadCertificate(signingCert.RawData))
+                    .SetECDsaPublicKey(pubKeyBytes)
+                    .CreateForECDsa(generator);
+                Assert.NotNull(cert);
+                WriteCertificate(cert, "Default signed ECDsa cert with Public Key");
+            }
+
+        }
+
         #endregion
 
         #region Private Methods
-        private static ECCurveHashPair[] GetECCurveHashPairs()
-        {
-            var result = new ECCurveHashPairCollection {
-                { ECCurve.NamedCurves.nistP256, HashAlgorithmName.SHA256 },
-                { ECCurve.NamedCurves.nistP384, HashAlgorithmName.SHA384 } };
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                result.AddRange(new ECCurveHashPairCollection {
-                { ECCurve.NamedCurves.brainpoolP256r1, HashAlgorithmName.SHA256 },
-                { ECCurve.NamedCurves.brainpoolP384r1, HashAlgorithmName.SHA384 }});
-            }
-            return result.ToArray();
-        }
-
+       
         private void WriteCertificate(X509Certificate2 cert, string message)
         {
             TestContext.Out.WriteLine(message);
@@ -373,15 +399,73 @@ namespace Opc.Ua.Security.Certificates.Tests
             }
         }
 
-        private void CheckPEMWriter(X509Certificate2 certificate, string password = null)
+        private void CheckPEMWriterReader(X509Certificate2 certificate, string password = null)
         {
             PEMWriter.ExportCertificateAsPEM(certificate);
             if (certificate.HasPrivateKey)
             {
-                PEMWriter.ExportPrivateKeyAsPEM(certificate, password);
-                PEMWriter.ExportECDsaPrivateKeyAsPEM(certificate);
+#if NET48
+                byte[] exportedPrivateKey = PEMWriter.ExportPrivateKeyAsPEM(certificate, password);
+                ECDsa ecdsaPrivKey = PEMReader.ImportECDsaPrivateKeyFromPEM(exportedPrivateKey, password);
+#endif
+#if !NETFRAMEWORK
+                PEMWriter.ExportPrivateKeyAsPEM(certificate, password);        
+#if NETCOREAPP3_1 || NET5_0_OR_GREATER
+                byte[] exportedPrivateKey = null;
+                ECDsa ecdsaPrivKey = null;
+                exportedPrivateKey = PEMWriter.ExportECDsaPrivateKeyAsPEM(certificate);
+                ecdsaPrivKey = PEMReader.ImportECDsaPrivateKeyFromPEM(exportedPrivateKey, password);
+#endif
+#endif
             }
         }
+
+        private static byte[] GetPublicKey(ECDsa ecdsa)
+        {
+#if NETFRAMEWORK    
+            var pubKeyParams = BouncyCastle.X509Utils.GetECPublicKeyParameters(ecdsa);
+            return SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(pubKeyParams).ToAsn1Object().GetDerEncoded();
+#elif NETCOREAPP3_1 || NET5_0_OR_GREATER
+            return ecdsa.ExportSubjectPublicKeyInfo();
+#endif
+        }
+        #endregion
+
+        #region Public static
+        public static ECCurveHashPair[] GetECCurveHashPairs()
+        {
+            var result = new ECCurveHashPairCollection {
+                { ECCurve.NamedCurves.nistP256, HashAlgorithmName.SHA256 },
+                { ECCurve.NamedCurves.nistP384, HashAlgorithmName.SHA384 },
+                { ECCurve.NamedCurves.brainpoolP256r1, HashAlgorithmName.SHA256 },
+                { ECCurve.NamedCurves.brainpoolP384r1, HashAlgorithmName.SHA384 }
+            };
+
+            int i = 0;
+            while (i < result.Count)
+            {
+                ECDsa key = null;
+
+                // test if curve is supported
+                try
+                {
+                    key = ECDsa.Create(result[i].Curve);
+                }
+                catch
+                {
+                    result.RemoveAt(i);
+                    continue;
+                }
+                finally
+                {
+                    Utils.SilentDispose(key);
+                }
+                i++;
+            }
+
+            return result.ToArray();
+        }
+
         #endregion
 
         #region Private Fields
@@ -389,4 +473,3 @@ namespace Opc.Ua.Security.Certificates.Tests
     }
 }
 #endif
-

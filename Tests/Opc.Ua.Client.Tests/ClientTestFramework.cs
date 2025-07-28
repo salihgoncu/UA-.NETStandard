@@ -35,9 +35,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging;
 using NUnit.Framework;
 using Opc.Ua.Server.Tests;
 using Quickstarts.ReferenceServer;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Opc.Ua.Client.Tests
 {
@@ -59,17 +61,19 @@ namespace Opc.Ua.Client.Tests
         public TokenValidatorMock TokenValidator { get; set; } = new TokenValidatorMock();
 
         public bool SingleSession { get; set; } = true;
+        public int MaxChannelCount { get; set; } = 100;
         public bool SupportsExternalServerUrl { get; set; } = false;
         public ServerFixture<ReferenceServer> ServerFixture { get; set; }
         public ClientFixture ClientFixture { get; set; }
         public ReferenceServer ReferenceServer { get; set; }
         public EndpointDescriptionCollection Endpoints { get; set; }
         public ReferenceDescriptionCollection ReferenceDescriptions { get; set; }
-        public ISession Session { get; private set; }
+        public ISession Session { get; protected set; }
         public OperationLimits OperationLimits { get; private set; }
         public string UriScheme { get; private set; }
         public string PkiRoot { get; set; }
         public Uri ServerUrl { get; private set; }
+        public int ServerFixturePort { get; set; }
         public ExpandedNodeId[] TestSetStatic { get; private set; }
         public ExpandedNodeId[] TestSetSimulation { get; private set; }
         public ExpandedNodeId[] TestSetDataSimulation { get; private set; }
@@ -81,6 +85,10 @@ namespace Opc.Ua.Client.Tests
             TestSetSimulation = CommonTestWorkers.NodeIdTestSetSimulation;
             TestSetDataSimulation = CommonTestWorkers.NodeIdTestSetDataSimulation;
             TestSetHistory = CommonTestWorkers.NodeIdTestDataHistory;
+        }
+        public void InitializeSession(ISession session)
+        {
+            Session = session;
         }
 
         #region DataPointSources
@@ -102,7 +110,12 @@ namespace Opc.Ua.Client.Tests
         /// Setup a server and client fixture.
         /// </summary>
         /// <param name="writer">The test output writer.</param>
-        public async Task OneTimeSetUpAsync(TextWriter writer = null, bool securityNone = false)
+        public async Task OneTimeSetUpAsync(TextWriter writer = null,
+            bool securityNone = false,
+            bool enableClientSideTracing = false,
+            bool enableServerSideTracing = false,
+            bool disableActivityLogging = false
+            )
         {
             // pki directory root for test runs.
             PkiRoot = Path.GetTempPath() + Path.GetRandomFileName();
@@ -129,36 +142,10 @@ namespace Opc.Ua.Client.Tests
 
             if (customUrl == null)
             {
-                // start Ref server
-                ServerFixture = new ServerFixture<ReferenceServer> {
-                    UriScheme = UriScheme,
-                    SecurityNone = securityNone,
-                    AutoAccept = true,
-                    AllNodeManagers = true,
-                    OperationLimits = true
-                };
-
-                if (writer != null)
-                {
-                    ServerFixture.TraceMasks = Utils.TraceMasks.Error | Utils.TraceMasks.Security;
-                }
-
-                await ServerFixture.LoadConfiguration(PkiRoot).ConfigureAwait(false);
-                ServerFixture.Config.TransportQuotas.MaxMessageSize = TransportQuotaMaxMessageSize;
-                ServerFixture.Config.TransportQuotas.MaxByteStringLength =
-                ServerFixture.Config.TransportQuotas.MaxStringLength = TransportQuotaMaxStringLength;
-                ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.UserName));
-                ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.Certificate));
-                ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(
-                    new UserTokenPolicy(UserTokenType.IssuedToken) { IssuedTokenType = Opc.Ua.Profiles.JwtUserToken });
-
-                ReferenceServer = await ServerFixture.StartAsync(writer ?? TestContext.Out).ConfigureAwait(false);
-                ReferenceServer.TokenValidator = this.TokenValidator;
+                await CreateReferenceServerFixture(enableServerSideTracing, disableActivityLogging, securityNone, writer).ConfigureAwait(false);
             }
 
-            ClientFixture = new ClientFixture();
-            ClientFixture.UseTracing = true;
-            ClientFixture.StartActivityListener();
+            ClientFixture = new ClientFixture(enableClientSideTracing, disableActivityLogging);
 
             await ClientFixture.LoadClientConfiguration(PkiRoot).ConfigureAwait(false);
             ClientFixture.Config.TransportQuotas.MaxMessageSize = TransportQuotaMaxMessageSize;
@@ -171,7 +158,16 @@ namespace Opc.Ua.Client.Tests
             }
             else
             {
-                ServerUrl = new Uri(UriScheme + "://localhost:" + ServerFixture.Port.ToString(CultureInfo.InvariantCulture));
+                string url = UriScheme + "://localhost:" + ServerFixturePort.ToString(CultureInfo.InvariantCulture);
+
+                if (UriScheme.StartsWith(Utils.UriSchemeHttp, StringComparison.Ordinal) ||
+                    Utils.IsUriHttpsScheme(UriScheme))
+                {
+                    url = url + ConfiguredEndpoint.DiscoverySuffix;
+                }
+
+                ServerUrl = new Uri(url);
+                
             }
 
             if (SingleSession)
@@ -184,9 +180,96 @@ namespace Opc.Ua.Client.Tests
                 }
                 catch (Exception e)
                 {
-                    Assert.Warn("OneTimeSetup failed to create session with {0}, tests fail. Error: {1}", ServerUrl, e.Message);
+                    Assert.Warn($"OneTimeSetup failed to create session with {ServerUrl}, tests fail. Error: {e.Message}");
                 }
             }
+        }
+
+        virtual public async Task CreateReferenceServerFixture(
+            bool enableTracing,
+            bool disableActivityLogging,
+            bool securityNone,
+            TextWriter writer)
+        {
+            {
+                // start Ref server
+                ServerFixture = new ServerFixture<ReferenceServer>(enableTracing, disableActivityLogging) {
+                    UriScheme = UriScheme,
+                    SecurityNone = securityNone,
+                    AutoAccept = true,
+                    AllNodeManagers = true,
+                    OperationLimits = true
+                };
+            }
+
+            if (writer != null)
+            {
+                ServerFixture.TraceMasks = Utils.TraceMasks.Error | Utils.TraceMasks.Security;
+            }
+
+            await ServerFixture.LoadConfiguration(PkiRoot).ConfigureAwait(false);
+            ServerFixture.Config.TransportQuotas.MaxMessageSize = TransportQuotaMaxMessageSize;
+            ServerFixture.Config.TransportQuotas.MaxByteStringLength =
+            ServerFixture.Config.TransportQuotas.MaxStringLength = TransportQuotaMaxStringLength;
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.UserName));
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.Certificate));
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(
+                new UserTokenPolicy(UserTokenType.IssuedToken) { IssuedTokenType = Opc.Ua.Profiles.JwtUserToken });
+
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.UserName) {
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_brainpoolP256r1"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.UserName) {
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_brainpoolP384r1"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.UserName) {
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_nistP256"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.UserName) {
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_nistP384"
+            });
+
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.Certificate) {
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_brainpoolP256r1"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.Certificate) {
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_brainpoolP384r1"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.Certificate) {
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_nistP256"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.Certificate) {
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_nistP384"
+            });
+
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.IssuedToken) {
+                IssuedTokenType = Opc.Ua.Profiles.JwtUserToken,
+                PolicyId = Profiles.JwtUserToken,
+                SecurityPolicyUri =  "http://opcfoundation.org/UA/SecurityPolicy#ECC_brainpoolP256r1"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.IssuedToken)
+            {
+                IssuedTokenType = Opc.Ua.Profiles.JwtUserToken,
+                PolicyId = Profiles.JwtUserToken,
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_brainpoolP384r1"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.IssuedToken)
+            {
+                IssuedTokenType = Opc.Ua.Profiles.JwtUserToken,
+                PolicyId = Profiles.JwtUserToken,
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_nistP256"
+            });
+            ServerFixture.Config.ServerConfiguration.UserTokenPolicies.Add(new UserTokenPolicy(UserTokenType.IssuedToken)
+            {
+                IssuedTokenType = Opc.Ua.Profiles.JwtUserToken,
+                PolicyId = Profiles.JwtUserToken,
+                SecurityPolicyUri = "http://opcfoundation.org/UA/SecurityPolicy#ECC_nistP384"
+            });
+
+            ServerFixture.Config.ServerConfiguration.MaxChannelCount = MaxChannelCount;
+            ReferenceServer = await ServerFixture.StartAsync(writer ?? TestContext.Out).ConfigureAwait(false);
+            ReferenceServer.TokenValidator = this.TokenValidator;
+            ServerFixturePort = ServerFixture.Port;
         }
 
         /// <summary>
@@ -221,7 +304,7 @@ namespace Opc.Ua.Client.Tests
                 }
                 catch (Exception e)
                 {
-                    Assert.Ignore("OneTimeSetup failed to create session, tests skipped. Error: {0}", e.Message);
+                    Assert.Ignore($"OneTimeSetup failed to create session, tests skipped. Error: {e.Message}");
                 }
             }
             if (ServerFixture == null)

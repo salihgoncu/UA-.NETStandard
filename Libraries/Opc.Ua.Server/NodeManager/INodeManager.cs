@@ -138,7 +138,7 @@ namespace Opc.Ua.Server
         /// NodeManager must return a ReferenceDescription with the NodeId and ReferenceTypeId set. The caller will
         /// be responsible for filling in the target attributes. 
         /// The references parameter may already contain references when the method is called. The implementer must 
-        /// include these references when calculating whether a continutation point must be returned.
+        /// include these references when calculating whether a continuation point must be returned.
         /// </remarks>
         /// <exception cref="ArgumentNullException">Thrown if the context, continuationPoint or references parameters are null.</exception>
         /// <exception cref="ServiceResultException">Thrown if an error occurs during processing.</exception>
@@ -229,7 +229,7 @@ namespace Opc.Ua.Server
             IList<ServiceResult> errors);
 
         /// <summary>
-        /// Calls a method defined on a object.
+        /// Calls a method defined on an object.
         /// </summary>
         void Call(
             OperationContext context,
@@ -283,7 +283,16 @@ namespace Opc.Ua.Server
             IList<ServiceResult> errors,
             IList<MonitoringFilterResult> filterErrors,
             IList<IMonitoredItem> monitoredItems,
+            bool createDurable,
             ref long globalIdCounter);
+
+        /// <summary>
+        /// Restore a set of monitored items after a restart.
+        /// </summary>
+        void RestoreMonitoredItems(
+            IList<IStoredMonitoredItem> itemsToRestore,
+            IList<IMonitoredItem> monitoredItems,
+            IUserIdentity savedOwnerIdentity);
 
         /// <summary>
         /// Modifies a set of monitored items.

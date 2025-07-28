@@ -29,14 +29,12 @@
 
 using System;
 using System.Collections.Generic;
-using System.Text;
-using System.Resources;
 using System.Globalization;
+using System.Linq;
 using System.Xml;
-using System.Reflection;
 
 namespace Opc.Ua.Server
-{    
+{
     /// <summary>
     /// An object that manages access to localized resources.
     /// </summary>
@@ -48,14 +46,14 @@ namespace Opc.Ua.Server
         /// </summary>
         public ResourceManager(IServerInternal server, ApplicationConfiguration configuration)
         {
-            if (server == null) throw new ArgumentNullException(nameof(server));    
+            if (server == null) throw new ArgumentNullException(nameof(server));
             if (configuration == null) throw new ArgumentNullException(nameof(configuration));
-           
+
             m_server = server;
             m_translationTables = new List<TranslationTable>();
         }
         #endregion
-        
+
         #region IDisposable Members
         /// <summary>
         /// May be called by the application to clean up resources.
@@ -83,7 +81,7 @@ namespace Opc.Ua.Server
         {
             return Translate(preferredLocales, null, new TranslationInfo(key, String.Empty, text, args));
         }
-        
+
         /// <virtual cref="ITranslationManager.Translate(IList{string}, LocalizedText)" />
         public LocalizedText Translate(IList<string> preferredLocales, LocalizedText text)
         {
@@ -99,7 +97,6 @@ namespace Opc.Ua.Server
             {
                 return null;
             }
-
             // translate localized text.
             LocalizedText translatedText = result.LocalizedText;
 
@@ -133,7 +130,7 @@ namespace Opc.Ua.Server
                 {
                     return result;
                 }
-            
+
                 translatedText = Translate(preferredLocales, result.LocalizedText);
             }
 
@@ -168,7 +165,7 @@ namespace Opc.Ua.Server
                 return availableLocales;
             }
         }
-        
+
         /// <summary>
         /// Returns the locales supported by the resource manager.
         /// </summary>
@@ -185,7 +182,7 @@ namespace Opc.Ua.Server
         public LocalizedText GetText(IList<string> preferredLocales, string textId, string defaultText, params object[] args)
         {
             return Translate(preferredLocales, textId, defaultText, args);
-        }  
+        }
 
         /// <summary>
         /// Adds a translation to the resource manager.
@@ -197,7 +194,7 @@ namespace Opc.Ua.Server
             if (text == null) throw new ArgumentNullException(nameof(text));
 
             CultureInfo culture = new CultureInfo(locale);
-            
+
             if (culture.IsNeutralCulture)
             {
                 throw new ArgumentException("Cannot specify neutral locales for translation tables.", nameof(locale));
@@ -213,13 +210,13 @@ namespace Opc.Ua.Server
         /// <summary>
         /// Adds the translations to the resource manager.
         /// </summary>
-        public void Add(string locale, IDictionary<string,string> translations)
+        public void Add(string locale, IDictionary<string, string> translations)
         {
             if (locale == null) throw new ArgumentNullException(nameof(locale));
             if (translations == null) throw new ArgumentNullException(nameof(translations));
 
             CultureInfo culture = new CultureInfo(locale);
-            
+
             if (culture.IsNeutralCulture)
             {
                 throw new ArgumentException("Cannot specify neutral locales for translation tables.", nameof(locale));
@@ -229,7 +226,7 @@ namespace Opc.Ua.Server
             {
                 TranslationTable table = GetTable(culture.Name);
 
-                foreach (KeyValuePair<string,string> translation in translations)
+                foreach (KeyValuePair<string, string> translation in translations)
                 {
                     table.Translations[translation.Key] = translation.Value;
                 }
@@ -243,15 +240,15 @@ namespace Opc.Ua.Server
         {
             lock (m_lock)
             {
-                string key = statusCode.ToString();
+                string key = statusCode.ToString(CultureInfo.InvariantCulture);
 
                 Add(key, locale, text);
 
                 if (m_statusCodeMapping == null)
                 {
-                    m_statusCodeMapping = new Dictionary<uint,TranslationInfo>();
+                    m_statusCodeMapping = new Dictionary<uint, TranslationInfo>();
                 }
-                
+
                 if (String.IsNullOrEmpty(locale) || locale == "en-US")
                 {
                     m_statusCodeMapping[statusCode] = new TranslationInfo(key, locale, text);
@@ -303,7 +300,7 @@ namespace Opc.Ua.Server
             }
         }
         #endregion
-        
+
         #region Protected Methods
         /// <summary>
         /// Returns the text for the specified locale (null if the locale is not supported).
@@ -319,8 +316,12 @@ namespace Opc.Ua.Server
         /// </summary>
         protected virtual LocalizedText Translate(IList<string> preferredLocales, LocalizedText defaultText, TranslationInfo info)
         {
+            defaultText = defaultText?.FilterByPreferredLocales(preferredLocales);
+
+            bool isMultilanguageRequested = preferredLocales?.Count > 0 ? preferredLocales[0].ToLowerInvariant() is "mul" or "qst" : false;
+
             // check for trivial case.
-            if (info == null || String.IsNullOrEmpty(info.Text))
+            if (info == null || (string.IsNullOrEmpty(info.Text) && string.IsNullOrEmpty(info.Key)))
             {
                 return defaultText;
             }
@@ -328,7 +329,13 @@ namespace Opc.Ua.Server
             // check for exact match.
             if (preferredLocales != null && preferredLocales.Count > 0)
             {
-                if (defaultText != null && preferredLocales[0] == defaultText.Locale)
+                if (defaultText != null && !isMultilanguageRequested && preferredLocales[0] == defaultText?.Locale)
+                {
+                    return defaultText;
+                }
+
+                // MultiLanguageText requested, specified numer of locales was found in the default text.
+                if (isMultilanguageRequested && preferredLocales.Count > 1 && defaultText?.Translations?.Count == preferredLocales.Count - 1)
                 {
                     return defaultText;
                 }
@@ -339,67 +346,125 @@ namespace Opc.Ua.Server
                 }
             }
 
-            // use the text as the key.
-            string key = info.Key;
-
-            if (key == null)
+            // get translation for multiLanguage request
+            if (isMultilanguageRequested)
             {
-                key = info.Text;
-            }
-
-            // find the best translation.
-            string translatedText = info.Text;
-            CultureInfo culture = CultureInfo.InvariantCulture;
-
-            lock (m_lock)
-            {
-                translatedText = FindBestTranslation(preferredLocales, key, out culture);
-
-                // use the default if no translation available.
-                if (translatedText == null)
+#if NETSTANDARD2_1_OR_GREATER || NET6_0_OR_GREATER
+                var translations = defaultText?.Translations != null ? new Dictionary<string, string>(defaultText.Translations) : new Dictionary<string, string>();
+#else
+                var translations = defaultText?.Translations != null ? new Dictionary<string, string>(defaultText.Translations.ToDictionary(s => s.Key, s => s.Value)) : new Dictionary<string, string>();
+#endif
+                // If only mul/qst is requested, return all available translations for the key.
+                if (preferredLocales.Count == 1)
                 {
-                    return defaultText;
-                }
-
-                // get a culture to use for formatting
-                if (culture == null)
-                {
-                    if (info.Args != null && info.Args.Length > 0 && !String.IsNullOrEmpty(info.Locale))
+                    lock (m_lock)
                     {
-                        try
+                        foreach (var table in m_translationTables)
                         {
-                            culture = new CultureInfo(info.Locale);
-                        }
-                        catch
-                        {
-                            culture = CultureInfo.InvariantCulture;
+                            if (table.Translations.TryGetValue(info.Key ?? info.Text, out string translation))
+                            {
+                                // format translated text.
+                                if (info.Args?.Length > 0)
+                                {
+                                    try
+                                    {
+                                        translation = string.Format(table.Locale, translation, info.Args);
+                                    }
+                                    catch
+                                    { }
+                                }
+
+                                translations[table.Locale.Name] = translation;
+                            }
                         }
                     }
                 }
-            }
-
-            // format translated text.
-            string formattedText = translatedText;
-
-            if (info.Args != null && info.Args.Length > 0)
-            {            
-                try
+                else
                 {
-                    formattedText = String.Format(culture, translatedText, info.Args);
-                }
-                catch
-                {
-                    formattedText = translatedText;
-                }
-            }
+                    // mul/qst + specific locales: return only those translations
+                    lock (m_lock)
+                    {
+                        for (int i = 1; i < preferredLocales.Count; i++)
+                        {
+                            string translation = FindBestTranslation(new List<string>() { preferredLocales[i] }, info.Key ?? info.Text, out CultureInfo culture);
 
-            // construct translated localized text.
-            Opc.Ua.LocalizedText finalText = new LocalizedText(culture.Name, formattedText);
-            finalText.TranslationInfo = info;
-            return finalText;
+                            if (translation != null)
+                            {
+                                // format translated text.
+                                if (info.Args?.Length > 0)
+                                {
+                                    try
+                                    {
+                                        translation = string.Format(culture, translation, info.Args);
+                                    }
+                                    catch
+                                    { }
+                                }
+
+                                translations[preferredLocales[i]] = translation;
+                            }
+                        }
+                    }
+                }
+                return new LocalizedText((IReadOnlyDictionary<string, string>)translations);
+            }
+            // single locale requested.
+            else
+            {
+                // find the best translation.
+                string translatedText = info.Text;
+                CultureInfo culture = CultureInfo.InvariantCulture;
+
+                lock (m_lock)
+                {
+                    translatedText = FindBestTranslation(preferredLocales, info.Key ?? info.Text, out culture);
+
+                    // use the default if no translation available.
+                    if (translatedText == null)
+                    {
+                        return defaultText;
+                    }
+
+                    // get a culture to use for formatting
+                    if (culture == null)
+                    {
+                        if (info.Args?.Length > 0 && !string.IsNullOrEmpty(info.Locale))
+                        {
+                            try
+                            {
+                                culture = new CultureInfo(info.Locale);
+                            }
+                            catch
+                            {
+                                culture = CultureInfo.InvariantCulture;
+                            }
+                        }
+                    }
+                }
+
+                // format translated text.
+                string formattedText = translatedText;
+
+                if (info.Args?.Length > 0)
+                {
+                    try
+                    {
+                        formattedText = string.Format(culture, translatedText, info.Args);
+                    }
+                    catch
+                    {
+                        formattedText = translatedText;
+                    }
+                }
+
+                // construct translated localized text.
+                Opc.Ua.LocalizedText finalText = new LocalizedText(culture.Name, formattedText);
+                finalText.TranslationInfo = info;
+                return finalText;
+            }
         }
         #endregion
-        
+
         #region Private Methods
         /// <summary>
         /// Stores the translations for a locale.
@@ -407,7 +472,7 @@ namespace Opc.Ua.Server
         private class TranslationTable
         {
             public CultureInfo Locale;
-            public SortedDictionary<string,string> Translations = new SortedDictionary<string,string>();
+            public SortedDictionary<string, string> Translations = new SortedDictionary<string, string>();
         }
 
         /// <summary>
@@ -421,7 +486,7 @@ namespace Opc.Ua.Server
                 for (int ii = 0; ii < m_translationTables.Count; ii++)
                 {
                     TranslationTable translationTable = m_translationTables[ii];
-                    
+
                     if (translationTable.Locale.Name == locale)
                     {
                         return translationTable;
@@ -446,7 +511,7 @@ namespace Opc.Ua.Server
             TranslationTable match = null;
 
             if (preferredLocales == null || preferredLocales.Count == 0) { return null; }
-            
+
             for (int jj = 0; jj < preferredLocales.Count; jj++)
             {
                 // parse the locale.
@@ -470,7 +535,7 @@ namespace Opc.Ua.Server
                 for (int ii = 0; ii < m_translationTables.Count; ii++)
                 {
                     TranslationTable translationTable = m_translationTables[ii];
-                
+
                     // all done if exact match found.
                     if (translationTable.Locale.Name == preferredLocales[jj])
                     {
@@ -480,7 +545,7 @@ namespace Opc.Ua.Server
                             return translatedText;
                         }
                     }
-                
+
                     // check for matching language but different region.
                     if (match == null && translationTable.Locale.TwoLetterISOLanguageName == language)
                     {
@@ -499,10 +564,10 @@ namespace Opc.Ua.Server
                 {
                     return translatedText;
                 }
-           }
+            }
 
-           // no translations available.
-           return null;
+            // no translations available.
+            return null;
         }
 
         /// <summary>
@@ -518,7 +583,7 @@ namespace Opc.Ua.Server
 
                     if (m_statusCodeMapping.TryGetValue(statusCode.Code, out info))
                     {
-                        // merge the argument list with the trahslateion info cached for the status code.
+                        // merge the argument list with the translation info cached for the status code.
                         if (args != null)
                         {
                             info = new TranslationInfo(
@@ -533,7 +598,7 @@ namespace Opc.Ua.Server
                 }
             }
 
-            return String.Format("{0:X8}", statusCode.Code);
+            return Utils.Format("{0:X8}", statusCode.Code);
         }
 
         /// <summary>
@@ -549,7 +614,7 @@ namespace Opc.Ua.Server
 
                     if (m_symbolicIdMapping.TryGetValue(new XmlQualifiedName(symbolicId, namespaceUri), out info))
                     {
-                        // merge the argument list with the trahslateion info cached for the symbolic id.
+                        // merge the argument list with the translation info cached for the symbolic id.
                         if (args != null)
                         {
                             info = new TranslationInfo(
@@ -569,12 +634,12 @@ namespace Opc.Ua.Server
         #endregion
 
         #region Private Fields
-        private object m_lock = new object();
+        private readonly object m_lock = new object();
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1823:AvoidUnusedPrivateFields")]
         private IServerInternal m_server;
         private List<TranslationTable> m_translationTables;
-        private Dictionary<uint,TranslationInfo> m_statusCodeMapping;
-        private Dictionary<XmlQualifiedName,TranslationInfo> m_symbolicIdMapping;
+        private Dictionary<uint, TranslationInfo> m_statusCodeMapping;
+        private Dictionary<XmlQualifiedName, TranslationInfo> m_symbolicIdMapping;
         #endregion
     }
 }

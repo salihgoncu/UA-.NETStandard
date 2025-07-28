@@ -11,6 +11,7 @@
 */
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Xml;
 
@@ -27,8 +28,12 @@ namespace Opc.Ua
         EncodingType EncodingType { get; }
 
         /// <summary>
-        /// Selects the reversible encoding type.
+        /// If the encoder is configured to produce a reversible encoding.
         /// </summary>
+        /// <remarks>
+        /// The BinaryEncoder and XmlEncoder in this library are reversible encoders.
+        /// For a JsonEncoder, reversability depends on the encoding type.
+        /// </remarks>
         bool UseReversibleEncoding { get; }
 
         /// <summary>
@@ -47,10 +52,10 @@ namespace Opc.Ua
         string CloseAndReturnText();
 
         /// <summary>
-        /// Sets the mapping tables to use during decoding.
+        /// Initializes the tables used to map namespace and server uris during encoding.
         /// </summary>
-        /// <param name="namespaceUris">The namespace uris.</param>
-        /// <param name="serverUris">The server uris.</param>
+        /// <param name="namespaceUris">The namespaces URIs referenced by the data being encoded.</param>
+        /// <param name="serverUris">The server URIs referenced by the data being encoded.</param>
         void SetMappingTables(NamespaceTable namespaceUris, StringTable serverUris);
 
         /// <summary>
@@ -62,6 +67,11 @@ namespace Opc.Ua
         /// Pops a namespace from the namespace stack.
         /// </summary>
         void PopNamespace();
+
+        /// <summary>
+        /// Encodes a message with its header.
+        /// </summary>
+        void EncodeMessage(IEncodeable message);
 
         /// <summary>
         /// Writes a boolean to the stream.
@@ -144,12 +154,23 @@ namespace Opc.Ua
         void WriteByteString(string fieldName, byte[] value);
 
         /// <summary>
-        /// Writes an XmlElement to the stream.
+        /// Writes a byte string to the stream with a given index and count.
+        /// </summary>
+        void WriteByteString(string fieldName, byte[] value, int index, int count);
+
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+        /// <summary>
+        /// Writes a byte string to the stream.
+        /// </summary>
+        void WriteByteString(string fieldName, ReadOnlySpan<byte> value);
+#endif
+        /// <summary>
+        /// Writes a XmlElement to the stream.
         /// </summary>
         void WriteXmlElement(string fieldName, XmlElement value);
 
         /// <summary>
-        /// Writes an NodeId to the stream.
+        /// Writes a NodeId to the stream.
         /// </summary>
         void WriteNodeId(string fieldName, NodeId value);
 
@@ -159,32 +180,32 @@ namespace Opc.Ua
         void WriteExpandedNodeId(string fieldName, ExpandedNodeId value);
 
         /// <summary>
-        /// Writes an StatusCode to the stream.
+        /// Writes a StatusCode to the stream.
         /// </summary>
         void WriteStatusCode(string fieldName, StatusCode value);
 
         /// <summary>
-        /// Writes an DiagnosticInfo to the stream.
+        /// Writes a DiagnosticInfo to the stream.
         /// </summary>
         void WriteDiagnosticInfo(string fieldName, DiagnosticInfo value);
 
         /// <summary>
-        /// Writes an QualifiedName to the stream.
+        /// Writes a QualifiedName to the stream.
         /// </summary>
         void WriteQualifiedName(string fieldName, QualifiedName value);
 
         /// <summary>
-        /// Writes an LocalizedText to the stream.
+        /// Writes a LocalizedText to the stream.
         /// </summary>
         void WriteLocalizedText(string fieldName, LocalizedText value);
 
         /// <summary>
-        /// Writes an Variant array to the stream.
+        /// Writes a Variant to the stream.
         /// </summary>
         void WriteVariant(string fieldName, Variant value);
 
         /// <summary>
-        /// Writes an DataValue array to the stream.
+        /// Writes a DataValue to the stream.
         /// </summary>
         void WriteDataValue(string fieldName, DataValue value);
 
@@ -196,7 +217,7 @@ namespace Opc.Ua
         /// <summary>
         /// Writes an encodeable object to the stream.
         /// </summary>
-        void WriteEncodeable(string fieldName, IEncodeable value, System.Type systemType);
+        void WriteEncodeable(string fieldName, IEncodeable value, Type systemType);
 
         /// <summary>
         /// Writes an enumerated value array to the stream.
@@ -214,7 +235,7 @@ namespace Opc.Ua
         void WriteSByteArray(string fieldName, IList<sbyte> values);
 
         /// <summary>
-        /// Writes a sbyte array to the stream.
+        /// Writes a byte array to the stream.
         /// </summary>
         void WriteByteArray(string fieldName, IList<byte> values);
 
@@ -289,7 +310,7 @@ namespace Opc.Ua
         void WriteXmlElementArray(string fieldName, IList<XmlElement> values);
 
         /// <summary>
-        /// Writes an NodeId array to the stream.
+        /// Writes a NodeId array to the stream.
         /// </summary>
         void WriteNodeIdArray(string fieldName, IList<NodeId> values);
 
@@ -299,32 +320,32 @@ namespace Opc.Ua
         void WriteExpandedNodeIdArray(string fieldName, IList<ExpandedNodeId> values);
 
         /// <summary>
-        /// Writes an StatusCode array to the stream.
+        /// Writes a StatusCode array to the stream.
         /// </summary>
         void WriteStatusCodeArray(string fieldName, IList<StatusCode> values);
 
         /// <summary>
-        /// Writes an DiagnosticInfo array to the stream.
+        /// Writes a DiagnosticInfo array to the stream.
         /// </summary>
         void WriteDiagnosticInfoArray(string fieldName, IList<DiagnosticInfo> values);
 
         /// <summary>
-        /// Writes an QualifiedName array to the stream.
+        /// Writes a QualifiedName array to the stream.
         /// </summary>
         void WriteQualifiedNameArray(string fieldName, IList<QualifiedName> values);
 
         /// <summary>
-        /// Writes an LocalizedText array to the stream.
+        /// Writes a LocalizedText array to the stream.
         /// </summary>
         void WriteLocalizedTextArray(string fieldName, IList<LocalizedText> values);
 
         /// <summary>
-        /// Writes an Variant array to the stream.
+        /// Writes a Variant array to the stream.
         /// </summary>
         void WriteVariantArray(string fieldName, IList<Variant> values);
 
         /// <summary>
-        /// Writes an DataValue array to the stream.
+        /// Writes a DataValue array to the stream.
         /// </summary>
         void WriteDataValueArray(string fieldName, IList<DataValue> values);
 
@@ -341,12 +362,24 @@ namespace Opc.Ua
         /// <summary>
         /// Writes an enumerated value array to the stream.
         /// </summary>
-        void WriteEnumeratedArray(string fieldName, Array values, System.Type systemType);
+        void WriteEnumeratedArray(string fieldName, Array values, Type systemType);
 
         /// <summary>
         /// Encode an array according to its valueRank and BuiltInType
         /// </summary>
         void WriteArray(string fieldName, object array, int valueRank, BuiltInType builtInType);
+
+        /// <summary>
+        /// Encode the switch field for a union.
+        /// </summary>
+        /// <params name="switchField">The switch field </params>
+        /// <params name="fieldName">Returns an alternate fieldName for the encoded union property if the encoder requires it, null otherwise.</params>
+        void WriteSwitchField(uint switchField, out string fieldName);
+
+        /// <summary>
+        /// Encode the encoding mask for a structure with optional fields.
+        /// </summary>
+        void WriteEncodingMask(uint encodingMask);
     }
 
     /// <summary>

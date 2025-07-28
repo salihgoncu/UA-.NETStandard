@@ -15,6 +15,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.Serialization;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
@@ -22,12 +23,10 @@ using System.Xml;
 namespace Opc.Ua
 {
     /// <summary>
-    /// Stores a list of cached enpoints.
+    /// Stores a list of cached endpoints.
     /// </summary>
     public partial class ConfiguredEndpointCollection : ICloneable
     {
-        private const string kDiscoverySuffix = "/discovery";
-
         #region Constructors
         /// <summary>
         /// Initializes the object with its default endpoint configuration.
@@ -132,9 +131,9 @@ namespace Opc.Ua
                 {
                     string discoveryUrl = endpoint.Description.EndpointUrl;
 
-                    if (discoveryUrl.StartsWith(Utils.UriSchemeHttp))
+                    if (Utils.IsUriHttpRelatedScheme(discoveryUrl))
                     {
-                        discoveryUrl += kDiscoverySuffix;
+                        discoveryUrl += ConfiguredEndpoint.DiscoverySuffix;
                     }
 
                     endpoint.Description.Server.DiscoveryUrls.Add(discoveryUrl);
@@ -200,7 +199,7 @@ namespace Opc.Ua
             }
             catch (Exception e)
             {
-                Utils.LogError(e, "Unexpected error loading ConfiguredEndpoints.");
+                Utils.LogError("Unexpected error loading ConfiguredEndpoints: {0}", Redaction.Redact.Create(e));
                 throw;
             }
         }
@@ -532,10 +531,10 @@ namespace Opc.Ua
                 }
 
                 if (endpointUrl != null &&
-                    endpointUrl.StartsWith(Utils.UriSchemeHttp, StringComparison.Ordinal) &&
-                    endpointUrl.EndsWith(kDiscoverySuffix, StringComparison.Ordinal))
+                    Utils.IsUriHttpRelatedScheme(endpointUrl) &&
+                    endpointUrl.EndsWith(ConfiguredEndpoint.DiscoverySuffix, StringComparison.OrdinalIgnoreCase))
                 {
-                    endpointUrl = endpointUrl.Substring(0, endpointUrl.Length - kDiscoverySuffix.Length);
+                    endpointUrl = endpointUrl.Substring(0, endpointUrl.Length - ConfiguredEndpoint.DiscoverySuffix.Length);
                 }
 
                 if (endpointUrl != null)
@@ -791,7 +790,10 @@ namespace Opc.Ua
     /// </summary>
     public partial class ConfiguredEndpoint : IFormattable, ICloneable
     {
-        private const string kDiscoverySuffix = "/discovery";
+        /// <summary>
+        /// A discovery suffix that may be appended to the discovery url of https endpoints.
+        /// </summary>
+        public static readonly string DiscoverySuffix = "/discovery";
 
         #region Constructors
         /// <summary>
@@ -814,10 +816,10 @@ namespace Opc.Ua
 
                 if (baseUrl != null)
                 {
-                    if (baseUrl.StartsWith(Utils.UriSchemeHttp, StringComparison.Ordinal) &&
-                        baseUrl.EndsWith(kDiscoverySuffix, StringComparison.Ordinal))
+                    if (Utils.IsUriHttpRelatedScheme(baseUrl) &&
+                        baseUrl.EndsWith(DiscoverySuffix, StringComparison.Ordinal))
                     {
-                        baseUrl = baseUrl.Substring(0, baseUrl.Length - kDiscoverySuffix.Length);
+                        baseUrl = baseUrl.Substring(0, baseUrl.Length - DiscoverySuffix.Length);
                     }
                 }
 
@@ -1110,6 +1112,7 @@ namespace Opc.Ua
             }
         }
 
+#if NET_STANDARD_ASYNC
         /// <summary>
         /// Updates an endpoint with information from the server's discovery endpoint.
         /// </summary>
@@ -1175,9 +1178,10 @@ namespace Opc.Ua
             }
             finally
             {
-                client.Close();
+                await client.CloseAsync(ct).ConfigureAwait(false);
             }
         }
+#endif
 
         /// <summary>
         /// Returns a discovery url that can be used to update the endpoint description.
@@ -1205,9 +1209,9 @@ namespace Opc.Ua
             // attempt to construct a discovery url by appending 'discovery' to the endpoint.
             if (discoveryUrls == null || discoveryUrls.Count == 0)
             {
-                if (endpointUrl.Scheme.StartsWith(Utils.UriSchemeHttp, StringComparison.Ordinal))
+                if (Utils.IsUriHttpRelatedScheme(endpointUrl.Scheme))
                 {
-                    return new Uri(String.Format(CultureInfo.InvariantCulture, "{0}"+ kDiscoverySuffix, endpointUrl));
+                    return new Uri(Utils.Format("{0}{1}", endpointUrl, DiscoverySuffix));
                 }
                 else
                 {
@@ -1291,7 +1295,7 @@ namespace Opc.Ua
                     m_description.EndpointUrl = null;
                 }
 
-                m_description.EndpointUrl = String.Format(CultureInfo.InvariantCulture, "{0}", value);
+                m_description.EndpointUrl = Utils.Format("{0}", value);
             }
         }
 
@@ -1403,6 +1407,12 @@ namespace Opc.Ua
 
                     // check for matching protocol.
                     if (sessionUrl.Scheme != endpointUrl.Scheme)
+                    {
+                        continue;
+                    }
+
+                    // check for matching port.
+                    if (sessionUrl.Port != endpointUrl.Port)
                     {
                         continue;
                     }
